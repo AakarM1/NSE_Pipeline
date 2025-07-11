@@ -1,3 +1,4 @@
+import traceback
 import duckdb
 import pandas as pd
 import glob
@@ -127,7 +128,7 @@ class DataPreProcessor:
             raw_df = self.fetch_corporate_actions()
             # print("THE DATAFRAME IS",raw_df.head())
             if raw_df.empty:
-                print("Aborting corporate action processing as no data was fetched.")
+                print("[INFO]: Aborting corporate action processing as no data was fetched.")
                 return
 
             # Map the columns from the API response to the names your code expects
@@ -152,8 +153,8 @@ class DataPreProcessor:
             df = pd.read_csv(ca_files[0])
             
         # Print column names to debug
-        print("Available columns:", df.columns.tolist())
-        
+        print("[INFO]: Available columns:", df.columns.tolist())
+
         # Parse the ex-date column
         df['ex_date'] = pd.to_datetime(df['EX-DATE'], format='%d-%b-%Y', errors='coerce').dt.date
         
@@ -243,10 +244,10 @@ class DataPreProcessor:
         calculating a cumulative adjustment factor.
         It creates a new table 'bhav_adjusted_prices' with the results.
         """
-        print("\nStarting adjusted price calculation...")
+        print("[INFO]: Starting adjusted price calculation...")
 
         self.con.execute("""
-        CREATE OR REPLACE TABLE bhav_adjusted_prices (
+        CREATE TABLE IF NOT EXISTS bhav_adjusted_prices (
             SYMBOL VARCHAR,
             SERIES VARCHAR,
             DATE1 DATE,
@@ -263,12 +264,11 @@ class DataPreProcessor:
             NO_OF_TRADES BIGINT,
             DELIV_QTY BIGINT,
             DELIV_PER DOUBLE,
-            CUMULATIVE_FACTOR DOUBLE,
             PRIMARY KEY (SYMBOL, SERIES, DATE1)
         );
         """)
 
-        print("Fetching price and corporate action data...")
+        print("[INFO]: Fetching price and corporate action data...")
         prices_df = self.con.execute("""
             SELECT 
             SYMBOL,
@@ -375,7 +375,7 @@ class DataPreProcessor:
 
             all_adjusted_data.append(group.reset_index())
 
-        print("Consolidating and saving adjusted price data...")
+        print("[INFO]: Consolidating and saving adjusted price data...")
         if all_adjusted_data:
             final_df = pd.concat(all_adjusted_data, ignore_index=True)
             
@@ -386,33 +386,112 @@ class DataPreProcessor:
                 'SYMBOL', 'SERIES', 'DATE1', 'PREV_CLOSE', 'OPEN_PRICE', 'HIGH_PRICE',
                 'LOW_PRICE', 'LAST_PRICE', 'CLOSE_PRICE', 'ADJ_CLOSE_PRICE', 'AVG_PRICE',
                 'TTL_TRD_QNTY', 'TURNOVER_LACS', 'NO_OF_TRADES', 'DELIV_QTY',
-                'DELIV_PER', 'CUMULATIVE_FACTOR'
+                'DELIV_PER',
             ]
             
             final_df = final_df[target_column_order]
             
             self.con.register('tmp_adjusted_prices', final_df)
             self.con.execute("""
-                INSERT INTO bhav_adjusted_prices
+                INSERT OR IGNORE INTO bhav_adjusted_prices
                 SELECT *
                 FROM tmp_adjusted_prices;
             """)
             self.con.unregister('tmp_adjusted_prices')
-            print(f"Successfully created 'bhav_adjusted_prices' table with {len(final_df):,} records.")
-            
+            print(f"[INFO]: Successfully created 'bhav_adjusted_prices' table with {len(final_df):,} records.")
+
             # Optional: Export to CSV for verification
             final_df.to_csv('data/bhav_adjusted_prices.csv', index=False)
-            print(f"Adjusted price data also exported to: data/bhav_adjusted_prices.csv")
+            print(f"[INFO]: Adjusted price data also exported to: data/bhav_adjusted_prices.csv")
         else:
-            print("No data was processed for adjusted prices.")
+            print("[INFO]: No data was processed for adjusted prices.")
 
+    def process_bulk_deals(self):
+        """
+        Process bulk deals data and join with adjusted prices
+        """
+        print("[INFO]: Processing bulk deals data...")
+        
+        try:
+            bulk_deals_df = pd.read_csv('data/Bulk-Deals.csv')
+            print(f"[INFO]: Loaded {len(bulk_deals_df)} bulk deal records")
+            
+            # Remove spaces from column headers
+            bulk_deals_df.columns = bulk_deals_df.columns.str.strip()
+            print("[INFO]: Column headers:", bulk_deals_df.columns.tolist())
+            
+            # Convert date format from DD-MMM-YYYY to YYYY-MM-DD
+            if 'Date' in bulk_deals_df.columns:
+                bulk_deals_df['DATE1'] = pd.to_datetime(bulk_deals_df['Date'], format='%d-%b-%Y').dt.date
+                print(f"[INFO]: Date conversion completed")
+            
+            print(f"[INFO]: DataFrame shape: {bulk_deals_df.shape}")
+            print(f"[INFO]: DataFrame columns: {list(bulk_deals_df.columns)}")
+            
+            self.con.register('tmp_bulk_deals', bulk_deals_df)
+            self.con.execute("""
+            CREATE OR REPLACE TABLE bulk_deals AS 
+            SELECT * FROM tmp_bulk_deals;
+            """)
+            self.con.unregister('tmp_bulk_deals')
+            
+            # Join with bhav_adjusted_prices and calculate is_greater column
+            print("[INFO]: Joining bulk deals with adjusted prices...")
+            result_df = self.con.execute("""
+                SELECT
+                bd.Symbol,
+                bd.Date,
+                AVG(bap.PREV_CLOSE)      AS PREV_CLOSE,
+                AVG(bap.OPEN_PRICE)      AS OPEN_PRICE,
+                AVG(bap.HIGH_PRICE)      AS HIGH_PRICE,
+                AVG(bap.LOW_PRICE)       AS LOW_PRICE,
+                AVG(bap.LAST_PRICE)      AS LAST_PRICE,
+                AVG(bap.CLOSE_PRICE)     AS CLOSE_PRICE,
+                AVG(bap.ADJ_CLOSE_PRICE) AS ADJ_CLOSE_PRICE,
+                AVG(bap.AVG_PRICE)       AS AVG_PRICE,
+                AVG(bap.TTL_TRD_QNTY)    AS TTL_TRD_QNTY,
+                AVG(bap.TURNOVER_LACS)   AS TURNOVER_LACS,
+                AVG(bap.NO_OF_TRADES)    AS NO_OF_TRADES,
+                AVG(bap.DELIV_QTY)       AS DELIV_QTY,
+                AVG(bap.DELIV_PER)       AS DELIV_PER,
+                AVG(
+                    CASE 
+                    WHEN bap.CLOSE_PRICE > bap.OPEN_PRICE THEN 1 
+                    ELSE 0 
+                    END
+                )                         AS is_greater
+                FROM bulk_deals bd
+                LEFT JOIN bhav_adjusted_prices bap
+                ON bd.Symbol = bap.SYMBOL
+                AND bd.DATE1  = bap.DATE1
+                -- AND bap.SERIES = 'EQ'
+                GROUP BY
+                bd.Symbol,
+                bd.Date
+                ORDER BY
+                bd.Date,
+                bd.Symbol;
+                """).df()
+            
+            # Save to CSV
+            output_file = 'data/bulk_deals_with_prices.csv'
+            result_df.to_csv(output_file, index=False)
+            print(f"[INFO]: Bulk deals analysis saved to {output_file}")
+            print(f"[INFO]: Total records in output: {len(result_df)}")
+            
+        except FileNotFoundError:
+            print("[ERROR]: data/Bulk-Deals.csv file not found!")
+        except Exception as e:
+            print(f"[ERROR]: Error processing bulk deals: {e}")
+            traceback.print_exc()
     def preprocess_data(self):
         self.preprocess_ca()
         self.calculate_adjusted_prices()
 
 if __name__ == "__main__":
     pre_processor = DataPreProcessor()
-    pre_processor.preprocess_data('2025-04-01', '2025-04-30')
+    # pre_processor.preprocess_data('2025-04-01', '2025-04-30')
+    pre_processor.process_bulk_deals()
     print("Data preprocessing completed successfully!")
 
 
