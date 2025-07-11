@@ -1,4 +1,9 @@
-data/
+bhav_sec/
+bhav_adjusted_prices.csv
+bhav_complete_data.csv
+bulk_deals_with_prices.csv
+corporate_actions_processed.csv
+eod.duckdb
 tests/
 __pycache__/
 *.pyc

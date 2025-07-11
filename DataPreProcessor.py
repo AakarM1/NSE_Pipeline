@@ -459,7 +459,13 @@ class DataPreProcessor:
                     WHEN bap.CLOSE_PRICE > bap.OPEN_PRICE THEN 1 
                     ELSE 0 
                     END
-                )                         AS is_greater
+                )                         AS is_greater,
+                AVG(
+                    CASE
+                    WHEN bap.OPEN_PRICE = bap.LOW_PRICE THEN 1
+                    ELSE 0
+                    END
+                )                         AS is_open_equal_low
                 FROM bulk_deals bd
                 LEFT JOIN bhav_adjusted_prices bap
                 ON bd.Symbol = bap.SYMBOL

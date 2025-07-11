@@ -20,7 +20,7 @@ def main(fromDate, toDate, tickerDict, con, create_database=False):
     # Step 3: Analyze data
     # NOTE: tickerDict is used to map ticker names to their respective symbols
     #       in the database, so it should contain the correct mappings and must be initialized
-    #       before this step.
+    #       for this step.
     # analysis = DataComparisonAnalysis.DataComparisonAnalysis(fromDate, toDate, tickerDict, con)
     # analysis.compare_adj_close()
 
