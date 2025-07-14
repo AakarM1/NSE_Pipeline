@@ -9,6 +9,8 @@ import requests
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 import calendar
+
+import yfinance
 """
 This file is to preprocess the entire data
 Required:
@@ -124,7 +126,7 @@ class DataPreProcessor:
         startDate = self.startDate
         endDate = self.endDate
         if startDate and endDate:
-            print(f"--- Fetching Live Corporate Actions from {startDate} to {endDate} ---")
+            print(f"[INFO]: Fetching Corporate Actions from {startDate} to {endDate}")
             raw_df = self.fetch_corporate_actions()
             # print("THE DATAFRAME IS",raw_df.head())
             if raw_df.empty:
@@ -236,6 +238,8 @@ class DataPreProcessor:
         INSERT OR IGNORE INTO corporate_actions
         SELECT * FROM tmp_corporate_actions;
         """)
+        print(f"[INFO]: Successfully created 'corporate_actions' table with {len(df):,} records.")
+        self.con.unregister('tmp_corporate_actions')
         
     def calculate_adjusted_prices(self):
         """
@@ -307,6 +311,11 @@ class DataPreProcessor:
 
         # 4. Process data symbol by symbol
         all_adjusted_data = []
+        # filter and use tickerDict to only process relevant symbols
+        if self.tickerDict:
+            prices_df = prices_df[prices_df['SYMBOL'].isin(self.tickerDict.keys())]
+            ca_df = ca_df[ca_df['symbol'].isin(self.tickerDict.keys())]
+            print(f"[INFO]: Filtering data to only include symbols in tickerDict: {self.tickerDict.keys()}")
         unique_symbols = prices_df['SYMBOL'].unique()
         total_symbols = len(unique_symbols)
         print(f"[INFO]: Processing {total_symbols} unique symbols...")
@@ -406,120 +415,162 @@ class DataPreProcessor:
         else:
             print("[INFO]: No data was processed for adjusted prices.")
 
-    # def process_bulk_deals(self):
-    #     """
-    #     Process bulk deals data and join with adjusted prices
-    #     """
-    #     print("[INFO]: Processing bulk deals data...")
+    def compare_adj_close(self):
+        """
+        Downloads data from Yahoo Finance for a symbol(s),
+        compares it against the local bhav_adjusted_prices table, and
+        calculates the accuracy of Close and Adjusted Close prices.
+        """
+        print("\n" + "="*60)
+        print("=== ADJUSTED CLOSE PRICE VALIDATION vs. YAHOO FINANCE ===")
+        print("="*60)
         
-    #     try:
-    #         bulk_deals_df = pd.read_csv('data/Bulk-Deals.csv')
-    #         print(f"[INFO]: Loaded {len(bulk_deals_df)} bulk deal records")
+        if not self.startDate or not self.endDate:
+            print("Error: Start date and end date must be provided for comparison.")
+            return
+        
+        # Convert string dates to datetime objects if needed
+        if isinstance(self.startDate, str):
+            start_date = datetime.strptime(self.startDate, '%Y-%m-%d')
+        else:
+            start_date = self.startDate
             
-    #         # Remove spaces from column headers
-    #         bulk_deals_df.columns = bulk_deals_df.columns.str.strip()
-    #         print("[INFO]: Column headers:", bulk_deals_df.columns.tolist())
-            
-    #         # Convert date format from DD-MMM-YYYY to YYYY-MM-DD
-    #         if 'Date' in bulk_deals_df.columns:
-    #             bulk_deals_df['Date'] = pd.to_datetime(bulk_deals_df['Date'], format='%d-%b-%Y').dt.date
-    #             print(f"[INFO]: Date conversion completed")
-    #         # remove space from column names
-    #         bulk_deals_df.columns = bulk_deals_df.columns.str.replace(' ', '_')
-    #         bulk_deals_df.columns = bulk_deals_df.columns.str.replace('/', '')
-    #         bulk_deals_df.columns = bulk_deals_df.columns.str.replace('.', '')
-            
-    #         # Convert 'Quantity' to numeric, handling errors
-    #         if 'Quantity_Traded' in bulk_deals_df.columns:
-    #             # Replace commas with empty string and convert to numeric
-    #             bulk_deals_df['Quantity_Traded'] = bulk_deals_df['Quantity_Traded'].str.replace(',', '', regex=False)
-    #             bulk_deals_df['Quantity_Traded'] = pd.to_numeric(bulk_deals_df['Quantity_Traded'], errors='coerce')
-    #             print(f"[INFO]: Converted 'Quantity_Traded' to numeric")
-    #         else:
-    #             print("[WARNING]: 'Quantity_Traded' column not found in bulk deals data.")
-            
-    #         print(f"[INFO]: DataFrame shape: {bulk_deals_df.shape}")
-    #         print(f"[INFO]: DataFrame columns: {list(bulk_deals_df.columns)}")
-            
-    #         # Convert trade_price to numeric, handling errors
-    #         if 'Trade_Price__Wght_Avg_Price' in bulk_deals_df.columns:
-    #             bulk_deals_df['Trade_Price__Wght_Avg_Price'] = pd.to_numeric(bulk_deals_df['Trade_Price__Wght_Avg_Price'], errors='coerce')
-    #             print(f"[INFO]: Converted 'Trade_Price__Wght_Avg_Price' to numeric")
-    #         else:
-    #             print("[WARNING]: 'Trade_Price__Wght_Avg_Price' column not found in bulk deals data.")
-    #         self.con.register('tmp_bulk_deals', bulk_deals_df)
-    #         self.con.execute("""
-    #         CREATE OR REPLACE TABLE bulk_deals AS 
-    #         SELECT * FROM tmp_bulk_deals;
-    #         """)
-    #         self.con.unregister('tmp_bulk_deals')
-            
-    #         # Join with bhav_adjusted_prices and calculate is_greater column
-    #         print("[INFO]: Joining bulk deals with adjusted prices...")
-    #         result_df = self.con.execute("""
-    #             SELECT
-    #             bd.Symbol,
-    #             bd.Date,
-    #             SUM(bd.Quantity_Traded)        AS Quantity_Traded,
-    #             AVG(bd.Trade_Price__Wght_Avg_Price) AS Trade_Price_Avg_Price,
-    #             AVG(bap.PREV_CLOSE)      AS PREV_CLOSE,
-    #             AVG(bap.OPEN_PRICE)      AS OPEN_PRICE,
-    #             AVG(bap.HIGH_PRICE)      AS HIGH_PRICE,
-    #             AVG(bap.LOW_PRICE)       AS LOW_PRICE,
-    #             AVG(bap.LAST_PRICE)      AS LAST_PRICE,
-    #             AVG(bap.CLOSE_PRICE)     AS CLOSE_PRICE,
-    #             AVG(bap.ADJ_CLOSE_PRICE) AS ADJ_CLOSE_PRICE,
-    #             AVG(bap.AVG_PRICE)       AS AVG_PRICE,
-    #             AVG(bap.TTL_TRD_QNTY)    AS TTL_TRD_QNTY,
-    #             AVG(bap.TURNOVER_LACS)   AS TURNOVER_LACS,
-    #             AVG(bap.NO_OF_TRADES)    AS NO_OF_TRADES,
-    #             AVG(bap.DELIV_QTY)       AS DELIV_QTY,
-    #             AVG(bap.DELIV_PER)       AS DELIV_PER,
-    #             AVG(
-    #                 CASE 
-    #                 WHEN bap.CLOSE_PRICE > bap.OPEN_PRICE THEN 1 
-    #                 ELSE 0 
-    #                 END
-    #             )                         AS is_greater,
-    #             AVG(
-    #                 CASE
-    #                 WHEN bap.OPEN_PRICE = bap.LOW_PRICE THEN 1
-    #                 ELSE 0
-    #                 END
-    #             )                         AS is_open_equal_low
-    #             FROM bulk_deals bd
-    #             LEFT JOIN bhav_adjusted_prices bap
-    #             ON bd.Symbol = bap.SYMBOL
-    #             AND bd.DATE  = bap.DATE1
-    #             -- AND bap.SERIES = 'EQ'
-    #             GROUP BY
-    #             bd.Symbol,
-    #             bd.Date
-    #             ORDER BY
-    #             bd.Date,
-    #             bd.Symbol;
-    #             """).df()
-            
-    #         # Save to CSV
-    #         output_file = 'data/bulk_deals_with_prices.csv'
-    #         result_df.to_csv(output_file, index=False)
-    #         print(f"[INFO]: Bulk deals analysis saved to {output_file}")
-    #         print(f"[INFO]: Total records in output: {len(result_df)}")
-            
-    #     except FileNotFoundError:
-    #         print("[ERROR]: data/Bulk-Deals.csv file not found!")
-    #     except Exception as e:
-    #         print(f"[ERROR]: Error processing bulk deals: {e}")
-    #         traceback.print_exc()
+        if isinstance(self.endDate, str):
+            end_date = datetime.strptime(self.endDate, '%Y-%m-%d')
+        else:
+            end_date = self.endDate
+
+        # 1. Define the symbol mapping
+        symbols = self.tickerDict
+        symbol_list = list(symbols.keys())
+        ticker_list = list(symbols.values())
+        
+        # 2. Fetch data from Yahoo Finance
+        print(f"Fetching data from Yahoo Finance for {len(ticker_list)} ticker(s)...")
+        yfin_df = yfinance.download(ticker_list, start=start_date, end=end_date, auto_adjust=False, group_by='ticker')
+        
+        if yfin_df.empty:
+            print("Could not download any data from Yahoo Finance. Aborting comparison.")
+            return
+        
+        # Reformat the multi-index yfinance DataFrame into a clean, long-format DataFrame
+        yfin_cleaned_list = []
+        for ticker in ticker_list:
+            if ticker in yfin_df.columns:
+                # Get the symbol for the current ticker
+                symbol_name = [s for s, t in symbols.items() if t == ticker][0]
+                temp_df = yfin_df[ticker].copy()
+                temp_df = temp_df.dropna(subset=['Close']) # Drop rows where there was no trading
+                temp_df['Symbol'] = symbol_name
+                yfin_cleaned_list.append(temp_df)
+        
+        yfin_df_long = pd.concat(yfin_cleaned_list).reset_index()
+        yfin_df_long = yfin_df_long.rename(columns={'Date': 'DATE1', 'Symbol': 'SYMBOL'})
+        yfin_df_long['DATE1'] = pd.to_datetime(yfin_df_long['DATE1']).dt.date
+        print(f"Successfully processed {len(yfin_df_long)} records from Yahoo Finance.")
+
+        # 3. Fetch your calculated data from the database
+        print("Fetching data from local 'bhav_adjusted_prices' table...")
+        symbols_tuple = tuple(symbol_list)
+        if self.con is None:
+            self.con = duckdb.connect(database='data/eod.duckdb', read_only=False)
+        bhav_adj_df = self.con.execute(f"""
+            SELECT SYMBOL, DATE1, CLOSE_PRICE, ADJ_CLOSE_PRICE
+            FROM bhav_adjusted_prices
+            WHERE SYMBOL IN {symbols_tuple}
+            AND DATE1 BETWEEN '{start_date.strftime('%Y-%m-%d')}' AND '{end_date.strftime('%Y-%m-%d')}'
+            ORDER BY SYMBOL, DATE1
+        """).df()
+        bhav_adj_df['DATE1'] = pd.to_datetime(bhav_adj_df['DATE1']).dt.date
+        print(f"Successfully fetched {len(bhav_adj_df)} records from local database.")
+
+        # 4. Merge the two DataFrames for direct comparison
+        merged_df = pd.merge(
+            yfin_df_long,
+            bhav_adj_df,
+            on=['SYMBOL', 'DATE1'],
+            how='inner', # Use 'inner' to only compare dates where both sources have data
+            suffixes=('_yfin', '_bhav')
+        )
+        
+        if merged_df.empty:
+            print("No common records found between Yahoo Finance and local data for the given symbols and dates.")
+            return
+
+        # 5. Calculate differences and round values
+        merged_df['CLOSE_PRICE_yfin_rounded'] = merged_df['Close'].round(2)
+        merged_df['CLOSE_PRICE_bhav_rounded'] = merged_df['CLOSE_PRICE'].round(2)
+        merged_df['ADJ_CLOSE_yfin_rounded'] = merged_df['Adj Close'].round(2)
+        merged_df['ADJ_CLOSE_bhav_rounded'] = merged_df['ADJ_CLOSE_PRICE'].round(2)
+        
+        merged_df['close_diff'] = (merged_df['CLOSE_PRICE_yfin_rounded'] - merged_df['CLOSE_PRICE_bhav_rounded']).abs()
+        merged_df['adj_close_diff'] = (merged_df['ADJ_CLOSE_yfin_rounded'] - merged_df['ADJ_CLOSE_bhav_rounded']).abs()
+
+        # 6. Calculate accuracy percentages
+        total_records = len(merged_df)
+        close_matches = (merged_df['close_diff'] == 0).sum()
+        adj_close_matches = (merged_df['adj_close_diff'] == 0).sum()
+        
+        close_accuracy = (close_matches / total_records) * 100
+        adj_close_accuracy = (adj_close_matches / total_records) * 100
+        
+        print("\n--- COMPARISON SUMMARY ---")
+        print(f"Total Common Records Analyzed: {total_records}")
+        print(f"Close Price Accuracy (rounded to 2dp):   {close_accuracy:.2f}% ({close_matches}/{total_records} matches)")
+        print(f"Adj Close Price Accuracy (rounded to 2dp): {adj_close_accuracy:.2f}% ({adj_close_matches}/{total_records} matches)")
+
+        # 7. Display sample data
+        print("\n--- SAMPLE COMPARISON DATA ---")
+        # Select relevant columns for display
+        display_cols = [
+            'SYMBOL', 'DATE1',
+            'CLOSE_PRICE_yfin_rounded', 'CLOSE_PRICE_bhav_rounded', 'close_diff',
+            'ADJ_CLOSE_yfin_rounded', 'ADJ_CLOSE_bhav_rounded', 'adj_close_diff'
+        ]
+        
+        # Show some of the largest differences first to identify issues
+        sample_diff_df = merged_df[merged_df['adj_close_diff'] > 0].sort_values(by='adj_close_diff', ascending=False)
+        
+        if not sample_diff_df.empty:
+            print("\nSample of Mismatched Adjusted Close Prices:")
+            print(sample_diff_df[display_cols].head(10).to_string(index=False))
+        else:
+            print("\nNo mismatches found in Adjusted Close Prices!")
+
+        # Show a sample of matching records
+        sample_match_df = merged_df[merged_df['adj_close_diff'] == 0]
+        if not sample_match_df.empty:
+            print("\nSample of Matching Adjusted Close Prices:")
+            print(sample_match_df[display_cols].head(10).to_string(index=False))
+
+        # 8. Save the detailed comparison to a CSV file
+        output_path = f"data/yfin_vs_bhav_comparison_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.csv"
+        # Add the names of symbols to the output path
+        output_path = output_path.replace("yfin_vs_bhav", f"yfin_vs_bhav_{'_'.join(self.tickerDict.keys())}")
+        merged_df.to_csv(output_path, index=False)
+        print(f"\nDetailed comparison saved to: {output_path}")
+ 
     def preprocess_data(self):
         self.preprocess_ca()
         self.calculate_adjusted_prices()
+        self.compare_adj_close()
+        
+        
 
 if __name__ == "__main__":
-    pre_processor = DataPreProcessor()
-    # pre_processor.preprocess_data('2025-04-01', '2025-04-30')
-    pre_processor.process_bulk_deals()
+    con = duckdb.connect(database='data/eod.duckdb', read_only=False)
+    fromDate = '2025-01-01'
+    toDate = '2025-07-01'
+    tickerDict = {
+        '360ONE': '360ONE.NS',
+        # 'CIEINDIA': 'CIEINDIA.NS',
+        # 'CRISIL': 'CRISIL.NS',
+        # 'DCMSRIND': 'DCMSRIND.NS',
+    }
+    pre_processor = DataPreProcessor(startDate=fromDate, endDate=toDate, tickerDict=tickerDict, con=con)
+    pre_processor.preprocess_data()
     print("Data preprocessing completed successfully!")
+    con.close()
 
 
 

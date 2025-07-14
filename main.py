@@ -4,17 +4,17 @@ import os
 def main(fromDate, toDate, tickerDict, con, create_database=False):
     # # Step 1: Retrieve data
     if create_database:
-        data_retriever = DataRetriever.DataRetriever(fromDate, toDate, tickerDict, con)
+        data_retriever = DataRetriever.DataRetriever(fromDate, toDate, con)
         data_retriever.retrieve_bhav_data()
         data_retriever.create_oldBhav()
         data_retriever.create_secDel()
         data_retriever.merge_oldBhav_secDel()
         data_retriever.create_newBhav()
-        data_retriever.create_finalDB()
+        data_retriever.create_finalDB() #creates bhav_complete_data.csv
     
     # # Step 2: Preprocess data - corporate actions
     pre_processor = DataPreProcessor.DataPreProcessor(fromDate, toDate, tickerDict, con)
-    pre_processor.preprocess_data() #creates bhav_adjusted_prices.csv and bhav_complete_data.csv
+    pre_processor.preprocess_data() #creates bhav_adjusted_prices.csv 
 
     # Step 3: Analyze data
     # NOTE: tickerDict is used to map ticker names to their respective symbols

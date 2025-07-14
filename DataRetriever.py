@@ -1,5 +1,6 @@
 import glob
 import traceback
+import duckdb
 import fastbt
 print(dir(fastbt))
 
@@ -29,7 +30,7 @@ class DataRetriever:
     etc. You can specify a date range and an output directory for the downloaded files.
     It also handles downloading all keys or a specific key based on the DOWNLOAD_ALL_KEYS flag.
     """
-    def __init__(self, fromDate, toDate, tickerDict, con):
+    def __init__(self, fromDate, toDate, con):
         ## Parameters
         self.dictKeys = ['sec_del', 'bhav', 'bhav_sec'] #list(patterns.file_patterns.keys()) #equity_info, hist_data, ipo_eq, nse_oi, trade_info
         self.key: str = "bhav_sec"  # Should be one of the available keys
@@ -41,7 +42,6 @@ class DataRetriever:
         self.client = httpx.Client()
         self.dates = pd.bdate_range(start=self.from_date, end=self.to_date)
         self.con = con
-        self.tickerDict = tickerDict  # Dictionary of tickers to filter data
 
     def download_and_save_file(self, url: str, filename: str) -> bool:
         """
@@ -207,9 +207,6 @@ class DataRetriever:
             # Map columns to match the bhav_old table structure
             df_mapped = pd.DataFrame()
             df_mapped['SYMBOL'] = df['SYMBOL'].str.strip().fillna('')
-            # keep only those rows where SYMBOL is in tickerDict
-            if self.tickerDict:
-                df_mapped = df_mapped[df_mapped['SYMBOL'].isin(self.tickerDict.keys())]
             df_mapped['SERIES'] = df['SERIES'].str.strip().fillna('')
             df_mapped['DATE1'] = df['DATE1']
             df_mapped['PREV_CLOSE'] = df['PREVCLOSE']
@@ -256,8 +253,6 @@ class DataRetriever:
             df = df[['SYMBOL','SERIES','DELIV_QTY','DELIV_PER','DATE1']]
             # Fix formatting issues by trimming SYMBOL and SERIES columns
             df['SYMBOL'] = df['SYMBOL'].str.strip()
-            if self.tickerDict:
-                df = df[df['SYMBOL'].isin(self.tickerDict.keys())]
             df['SERIES'] = df['SERIES'].str.strip()
             # Handle NULL/empty SERIES values
             df['SERIES'] = df['SERIES'].fillna('').replace('', 'UNKNOWN')
@@ -356,8 +351,6 @@ class DataRetriever:
         df_new.columns = df_new.columns.str.strip()
         # Fix formatting issues by trimming SYMBOL and SERIES columns
         df_new['SYMBOL'] = df_new['SYMBOL'].str.strip().fillna('')
-        if self.tickerDict:
-            df_new = df_new[df_new['SYMBOL'].isin(self.tickerDict.keys())]
         df_new['SERIES'] = df_new['SERIES'].str.strip().fillna('')
         # Filter out rows with empty SYMBOL or SERIES
         df_new = df_new[(df_new['SYMBOL'] != '') & (df_new['SERIES'] != '')]
@@ -526,7 +519,10 @@ class DataRetriever:
     
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    retriever = DataRetriever()
+    con = duckdb.connect(database='data/eod.duckdb', read_only=False)
+    fromDate = '2025-01-01'
+    toDate = '2025-07-01'
+    retriever = DataRetriever(fromDate, toDate, con)
     retriever.retrieve_bhav_data()
     retriever.create_oldBhav()
     retriever.create_secDel()
@@ -534,3 +530,5 @@ if __name__ == "__main__":
     retriever.create_newBhav()
     retriever.create_finalDB()
     print("Data retrieval completed.")
+    con.close()
+    

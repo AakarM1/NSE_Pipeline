@@ -55,43 +55,42 @@ def process_bulk_deals(bulk_deals_csv, con):
             con.unregister('tmp_bulk_deals')
             
             # Join with bhav_adjusted_prices and calculate is_greater column
-            print("[INFO]: Joining bulk deals with adjusted prices...")
+            print("[INFO]: Joining bulk deals with bhav_data...")
             result_df = con.execute("""
                 SELECT
                 bd.Symbol,
                 bd.Date,
                 SUM(bd.Quantity_Traded)        AS Quantity_Traded,
                 AVG(bd.Trade_Price__Wght_Avg_Price) AS Trade_Price_Avg_Price,
-                AVG(bap.PREV_CLOSE)      AS PREV_CLOSE,
-                AVG(bap.OPEN_PRICE)      AS OPEN_PRICE,
-                AVG(bap.HIGH_PRICE)      AS HIGH_PRICE,
-                AVG(bap.LOW_PRICE)       AS LOW_PRICE,
-                AVG(bap.LAST_PRICE)      AS LAST_PRICE,
-                AVG(bap.CLOSE_PRICE)     AS CLOSE_PRICE,
-                AVG(bap.ADJ_CLOSE_PRICE) AS ADJ_CLOSE_PRICE,
-                AVG(bap.AVG_PRICE)       AS AVG_PRICE,
-                AVG(bap.TTL_TRD_QNTY)    AS TTL_TRD_QNTY,
-                AVG(bap.TURNOVER_LACS)   AS TURNOVER_LACS,
-                AVG(bap.NO_OF_TRADES)    AS NO_OF_TRADES,
-                AVG(bap.DELIV_QTY)       AS DELIV_QTY,
-                AVG(bap.DELIV_PER)       AS DELIV_PER,
+                AVG(bcd.PREV_CLOSE)      AS PREV_CLOSE,
+                AVG(bcd.OPEN_PRICE)      AS OPEN_PRICE,
+                AVG(bcd.HIGH_PRICE)      AS HIGH_PRICE,
+                AVG(bcd.LOW_PRICE)       AS LOW_PRICE,
+                AVG(bcd.LAST_PRICE)      AS LAST_PRICE,
+                AVG(bcd.CLOSE_PRICE)     AS CLOSE_PRICE,
+                AVG(bcd.AVG_PRICE)       AS AVG_PRICE,
+                AVG(bcd.TTL_TRD_QNTY)    AS TTL_TRD_QNTY,
+                AVG(bcd.TURNOVER_LACS)   AS TURNOVER_LACS,
+                AVG(bcd.NO_OF_TRADES)    AS NO_OF_TRADES,
+                AVG(bcd.DELIV_QTY)       AS DELIV_QTY,
+                AVG(bcd.DELIV_PER)       AS DELIV_PER,
                 AVG(
-                    CASE 
-                    WHEN bap.CLOSE_PRICE > bap.OPEN_PRICE THEN 1 
-                    ELSE 0 
+                    CASE
+                    WHEN bcd.CLOSE_PRICE > bcd.OPEN_PRICE THEN 1
+                    ELSE 0
                     END
                 )                         AS is_greater,
                 AVG(
                     CASE
-                    WHEN bap.OPEN_PRICE = bap.LOW_PRICE THEN 1
+                    WHEN bcd.OPEN_PRICE = bcd.LOW_PRICE THEN 1
                     ELSE 0
                     END
                 )                         AS is_open_equal_low
                 FROM bulk_deals bd
-                LEFT JOIN bhav_adjusted_prices bap
-                ON bd.Symbol = bap.SYMBOL
-                AND bd.DATE  = bap.DATE1
-                -- AND bap.SERIES = 'EQ'
+                LEFT JOIN bhav_complete_data bcd
+                ON bd.Symbol = bcd.SYMBOL
+                AND bd.DATE  = bcd.DATE1
+                -- AND bcd.SERIES = 'EQ'
                 GROUP BY
                 bd.Symbol,
                 bd.Date
