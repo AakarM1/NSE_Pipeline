@@ -14,7 +14,7 @@ def main(fromDate, toDate, tickerDict, con, create_database=False):
     
     # # Step 2: Preprocess data - corporate actions
     pre_processor = DataPreProcessor.DataPreProcessor(fromDate, toDate, tickerDict, con)
-    # pre_processor.preprocess_data()
+    pre_processor.preprocess_data()
     pre_processor.process_bulk_deals()
 
     # Step 3: Analyze data
@@ -34,7 +34,7 @@ if __name__ == "__main__":
         # 'CRISIL': 'CRISIL.NS',
         # 'DCMSRIND': 'DCMSRIND.NS',
     }
-    create_database = False # Set to True to create a new database
+    create_database = True # Set to True to create a new database
     
     
     # create a data folder if it doesn't exist
