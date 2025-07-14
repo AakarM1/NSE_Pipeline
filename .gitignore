@@ -7,3 +7,5 @@ eod.duckdb
 tests/
 __pycache__/
 *.pyc
+.venv/
+.vscode/
