@@ -14,8 +14,7 @@ def main(fromDate, toDate, tickerDict, con, create_database=False):
     
     # # Step 2: Preprocess data - corporate actions
     pre_processor = DataPreProcessor.DataPreProcessor(fromDate, toDate, tickerDict, con)
-    pre_processor.preprocess_data()
-    pre_processor.process_bulk_deals()
+    pre_processor.preprocess_data() #creates bhav_adjusted_prices.csv and bhav_complete_data.csv
 
     # Step 3: Analyze data
     # NOTE: tickerDict is used to map ticker names to their respective symbols
