@@ -153,6 +153,9 @@ class DataRetriever:
     def create_oldBhav(self):
         # Create or replace the bhav_old table
         # This table will hold the old bhav data from cm*bhav.csv files
+        if self.from_date > "2024-07-04":
+            print("[INFO]: Skipping old_bhav data as fromDate is after 4th July 2024.")
+            return
         self.con.execute("""
         CREATE TABLE IF NOT EXISTS bhav_old (
           SYMBOL         VARCHAR,
@@ -236,6 +239,9 @@ class DataRetriever:
         # bhav_old_df.to_csv('data/bhav_old.csv', index=False)
         
     def create_secDel(self):
+        if self.from_date > "2024-07-04":
+            print("[INFO]: Skipping sec_del data as fromDate is after 4th July 2024.")
+            return
         sec_frames = []
         for fp in glob.glob('data/sec_del/MTO_*.DAT'):
             df = pd.read_csv(fp, skiprows=4, header=None)
@@ -278,6 +284,9 @@ class DataRetriever:
         """)
         
     def merge_oldBhav_secDel(self):
+        if self.from_date > "2024-07-04":
+            print("[INFO]: Skipping merge of old_bhav and sec_del data as fromDate is after 4th July 2024.")
+            return
         self.con.execute("""
         CREATE TABLE IF NOT EXISTS eod_cash (
           SYMBOL         VARCHAR,
@@ -438,33 +447,34 @@ class DataRetriever:
         """)
 
         # Then, insert eod_cash data for records NOT already in new_bhav
-        self.con.execute("""
-        INSERT OR IGNORE INTO bhav_complete_data
-        SELECT
-          e.SYMBOL,
-          e.SERIES,
-          e.DATE1,
-          e.PREV_CLOSE,
-          e.OPEN_PRICE,
-          e.HIGH_PRICE,
-          e.LOW_PRICE,
-          e.LAST_PRICE,
-          e.CLOSE_PRICE,
-          e.AVG_PRICE,
-          e.TTL_TRD_QNTY,
-          e.TURNOVER_LACS,
-          e.NO_OF_TRADES,
-          e.DELIV_QTY,
-          e.DELIV_PER,
-          'eod_cash' as DATA_SOURCE
-        FROM eod_cash e
-        WHERE NOT EXISTS (
-          SELECT 1 FROM new_bhav n
-          WHERE n.SYMBOL = e.SYMBOL
-            AND n.SERIES = e.SERIES
-            AND n.DATE1 = e.DATE1
-        );
-        """)
+        if self.from_date <= "2024-07-04":
+            self.con.execute("""
+            INSERT OR IGNORE INTO bhav_complete_data
+            SELECT
+            e.SYMBOL,
+            e.SERIES,
+            e.DATE1,
+            e.PREV_CLOSE,
+            e.OPEN_PRICE,
+            e.HIGH_PRICE,
+            e.LOW_PRICE,
+            e.LAST_PRICE,
+            e.CLOSE_PRICE,
+            e.AVG_PRICE,
+            e.TTL_TRD_QNTY,
+            e.TURNOVER_LACS,
+            e.NO_OF_TRADES,
+            e.DELIV_QTY,
+            e.DELIV_PER,
+            'eod_cash' as DATA_SOURCE
+            FROM eod_cash e
+            WHERE NOT EXISTS (
+            SELECT 1 FROM new_bhav n
+            WHERE n.SYMBOL = e.SYMBOL
+                AND n.SERIES = e.SERIES
+                AND n.DATE1 = e.DATE1
+            );
+            """)
 
         # Get statistics about the final dataset
         final_stats = self.con.execute("""
