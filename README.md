@@ -284,32 +284,6 @@ The pipeline generates several output files in the `data/` directory:
 - **bulk_deals_with_prices.csv**: Bulk deals with price analysis
 - **yfin_vs_bhav_comparison_*.csv**: Yahoo Finance comparison results
 
-## 🧪 Testing & Validation
-
-The `tests/` directory contains comprehensive validation scripts:
-
-### Data Quality Tests
-- `check_schema.py`: Database schema validation
-- `check_duplicates.py`: Duplicate record detection
-- `check_matching_data.py`: Data consistency checks
-- `verify_primary_keys.py`: Primary key constraint validation
-
-### Corporate Actions Tests
-- `check_corporate_actions.py`: Corporate actions validation
-- `test_ca_impact.py`: Corporate action impact analysis
-- `check_adjustments.py`: Price adjustment verification
-
-### Integration Tests
-- `test_full_pipeline.py`: End-to-end pipeline testing
-- `test_single_export.py`: Single stock analysis
-- `pipeline_status.py`: Pipeline health monitoring
-
-### Usage Example
-```bash
-python tests/test_full_pipeline.py
-python tests/check_schema.py
-python tests/verify_export.py
-```
 
 ## 🚨 Error Handling
 
@@ -398,14 +372,6 @@ pip install -r requirements.txt  # If requirements.txt exists
 ## 📄 License
 
 This project is for educational and research purposes. Please ensure compliance with NSE data usage policies.
-
-## 🆘 Support
-
-For issues and questions:
-1. Check the `tests/` directory for validation scripts (TODO)
-2. Review error logs in console output
-3. Verify data file formats and locations
-4. Ensure all dependencies are installed
 
 ## 🔗 Related Resources
 

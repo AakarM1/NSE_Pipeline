@@ -422,12 +422,31 @@ class DataPreProcessor:
             
             # Convert date format from DD-MMM-YYYY to YYYY-MM-DD
             if 'Date' in bulk_deals_df.columns:
-                bulk_deals_df['DATE1'] = pd.to_datetime(bulk_deals_df['Date'], format='%d-%b-%Y').dt.date
+                bulk_deals_df['Date'] = pd.to_datetime(bulk_deals_df['Date'], format='%d-%b-%Y').dt.date
                 print(f"[INFO]: Date conversion completed")
+            # remove space from column names
+            bulk_deals_df.columns = bulk_deals_df.columns.str.replace(' ', '_')
+            bulk_deals_df.columns = bulk_deals_df.columns.str.replace('/', '')
+            bulk_deals_df.columns = bulk_deals_df.columns.str.replace('.', '')
+            
+            # Convert 'Quantity' to numeric, handling errors
+            if 'Quantity_Traded' in bulk_deals_df.columns:
+                # Replace commas with empty string and convert to numeric
+                bulk_deals_df['Quantity_Traded'] = bulk_deals_df['Quantity_Traded'].str.replace(',', '', regex=False)
+                bulk_deals_df['Quantity_Traded'] = pd.to_numeric(bulk_deals_df['Quantity_Traded'], errors='coerce')
+                print(f"[INFO]: Converted 'Quantity_Traded' to numeric")
+            else:
+                print("[WARNING]: 'Quantity_Traded' column not found in bulk deals data.")
             
             print(f"[INFO]: DataFrame shape: {bulk_deals_df.shape}")
             print(f"[INFO]: DataFrame columns: {list(bulk_deals_df.columns)}")
             
+            # Convert trade_price to numeric, handling errors
+            if 'Trade_Price__Wght_Avg_Price' in bulk_deals_df.columns:
+                bulk_deals_df['Trade_Price__Wght_Avg_Price'] = pd.to_numeric(bulk_deals_df['Trade_Price__Wght_Avg_Price'], errors='coerce')
+                print(f"[INFO]: Converted 'Trade_Price__Wght_Avg_Price' to numeric")
+            else:
+                print("[WARNING]: 'Trade_Price__Wght_Avg_Price' column not found in bulk deals data.")
             self.con.register('tmp_bulk_deals', bulk_deals_df)
             self.con.execute("""
             CREATE OR REPLACE TABLE bulk_deals AS 
@@ -441,6 +460,8 @@ class DataPreProcessor:
                 SELECT
                 bd.Symbol,
                 bd.Date,
+                SUM(bd.Quantity_Traded)        AS Quantity_Traded,
+                AVG(bd.Trade_Price__Wght_Avg_Price) AS Trade_Price_Avg_Price,
                 AVG(bap.PREV_CLOSE)      AS PREV_CLOSE,
                 AVG(bap.OPEN_PRICE)      AS OPEN_PRICE,
                 AVG(bap.HIGH_PRICE)      AS HIGH_PRICE,
@@ -469,7 +490,7 @@ class DataPreProcessor:
                 FROM bulk_deals bd
                 LEFT JOIN bhav_adjusted_prices bap
                 ON bd.Symbol = bap.SYMBOL
-                AND bd.DATE1  = bap.DATE1
+                AND bd.DATE  = bap.DATE1
                 -- AND bap.SERIES = 'EQ'
                 GROUP BY
                 bd.Symbol,

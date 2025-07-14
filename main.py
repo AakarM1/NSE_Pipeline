@@ -14,7 +14,7 @@ def main(fromDate, toDate, tickerDict, con, create_database=False):
     
     # # Step 2: Preprocess data - corporate actions
     pre_processor = DataPreProcessor.DataPreProcessor(fromDate, toDate, tickerDict, con)
-    pre_processor.preprocess_data()
+    # pre_processor.preprocess_data()
     pre_processor.process_bulk_deals()
 
     # Step 3: Analyze data
