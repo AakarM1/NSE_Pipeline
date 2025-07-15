@@ -1,4 +1,3 @@
-bhav_sec/
 bhav_adjusted_prices.csv
 bhav_complete_data.csv
 bulk_deals_with_prices.csv
@@ -9,3 +8,5 @@ __pycache__/
 *.pyc
 .venv/
 .vscode/
+sec_del/
+yfin*.csv

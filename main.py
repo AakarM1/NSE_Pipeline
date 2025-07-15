@@ -1,5 +1,5 @@
 import duckdb
-import DataComparisonAnalysis, DataPreProcessor, DataRetriever
+import Code.tests.DataComparisonAnalysis as DataComparisonAnalysis, DataPreProcessor, DataRetriever
 import os
 def main(fromDate, toDate, tickerDict, con, create_database=False):
     # # Step 1: Retrieve data

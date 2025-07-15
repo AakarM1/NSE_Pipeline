@@ -39,8 +39,8 @@ class DataPreProcessor:
         self.tickerDict = tickerDict
 
 
-    def fetch_corporate_actions(self) -> pd.DataFrame:
-        df = pd.read_csv('data/CF-CA-equities.csv')
+    def fetch_corporate_actions(self, corp_actions_csv='data/CF-CA-equities.csv') -> pd.DataFrame:
+        df = pd.read_csv(corp_actions_csv)
         # print(df)
         return df
         start_date = self.startDate
@@ -121,13 +121,13 @@ class DataPreProcessor:
         print(f"Successfully fetched a total of {len(df)} unique corporate action records.")
         return df
 
-    def preprocess_ca(self,):
+    def preprocess_ca(self, corp_actions_csv='data/CF-CA-equities.csv'):
         df = pd.DataFrame()
         startDate = self.startDate
         endDate = self.endDate
         if startDate and endDate:
             print(f"[INFO]: Fetching Corporate Actions from {startDate} to {endDate}")
-            raw_df = self.fetch_corporate_actions()
+            raw_df = self.fetch_corporate_actions(corp_actions_csv)
             # print("THE DATAFRAME IS",raw_df.head())
             if raw_df.empty:
                 print("[INFO]: Aborting corporate action processing as no data was fetched.")
@@ -144,13 +144,16 @@ class DataPreProcessor:
             ca_files = glob.glob('data/CF-CA-equities-*.csv')
             if not ca_files:
                 print("[WARNING]: No corporate action file found and no date specified. Skipping CA processing.")
-                self.con.execute("""
-                CREATE TABLE IF NOT EXISTS corporate_actions (
-                  symbol VARCHAR, ex_date DATE, action_type VARCHAR, dividend_amount DOUBLE,
-                  bonus_ratio_from DOUBLE, bonus_ratio_to DOUBLE, split_ratio_from DOUBLE,
-                  split_ratio_to DOUBLE, PRIMARY KEY (symbol, ex_date, action_type)
-                );
-                """)
+                if CREATE_TABLES:
+                    # Create an empty corporate_actions table if no file is found
+                    self.con.execute("""
+                    CREATE TABLE IF NOT EXISTS corporate_actions (
+                    symbol VARCHAR, ex_date DATE, action_type VARCHAR, dividend_amount DOUBLE,
+                    bonus_ratio_from DOUBLE, bonus_ratio_to DOUBLE, split_ratio_from DOUBLE,
+                    split_ratio_to DOUBLE, PRIMARY KEY (symbol, ex_date, action_type)
+                    );
+                    """)
+                print("[INFO]: Created corporate action table strcuture.")
                 return
             df = pd.read_csv(ca_files[0])
             
@@ -218,28 +221,44 @@ class DataPreProcessor:
             'rights issue': 'rights'
         })
         df.to_csv('data/corporate_actions_processed.csv', index=False)
-        # Create corporate_actions table
-        self.con.execute("""
-        CREATE TABLE IF NOT EXISTS corporate_actions (
-          symbol VARCHAR,
-          ex_date DATE,
-          action_type VARCHAR,
-          dividend_amount DOUBLE,
-          bonus_ratio_from DOUBLE,
-          bonus_ratio_to DOUBLE,
-          split_ratio_from DOUBLE,
-          split_ratio_to DOUBLE,
-          PRIMARY KEY (symbol, ex_date, action_type)
-        );
-        """)
-        # Insert data into corporate_actions table
-        self.con.register('tmp_corporate_actions', df)
-        self.con.execute("""
-        INSERT OR IGNORE INTO corporate_actions
-        SELECT * FROM tmp_corporate_actions;
-        """)
-        print(f"[INFO]: Successfully created 'corporate_actions' table with {len(df):,} records.")
-        self.con.unregister('tmp_corporate_actions')
+        print("[INFO]: Successfully processed corporate actions data.")
+        if CREATE_TABLES:
+            # Create corporate_actions table if it doesn't exist
+            self.con.execute("""
+            CREATE TABLE IF NOT EXISTS corporate_actions (
+              symbol VARCHAR,
+              ex_date DATE,
+              action_type VARCHAR,
+              dividend_amount DOUBLE,
+              bonus_ratio_from DOUBLE,
+              bonus_ratio_to DOUBLE,
+              split_ratio_from DOUBLE,
+              split_ratio_to DOUBLE,
+              PRIMARY KEY (symbol, ex_date, action_type)
+            );
+            """)
+            # Create corporate_actions table
+            self.con.execute("""
+            CREATE TABLE IF NOT EXISTS corporate_actions (
+            symbol VARCHAR,
+            ex_date DATE,
+            action_type VARCHAR,
+            dividend_amount DOUBLE,
+            bonus_ratio_from DOUBLE,
+            bonus_ratio_to DOUBLE,
+            split_ratio_from DOUBLE,
+            split_ratio_to DOUBLE,
+            PRIMARY KEY (symbol, ex_date, action_type)
+            );
+            """)
+            # Insert data into corporate_actions table
+            self.con.register('tmp_corporate_actions', df)
+            self.con.execute("""
+            INSERT OR IGNORE INTO corporate_actions
+            SELECT * FROM tmp_corporate_actions;
+            """)
+            print(f"[INFO]: Successfully created 'corporate_actions' table with {len(df):,} records.")
+            self.con.unregister('tmp_corporate_actions')
         
     def calculate_adjusted_prices(self):
         """
@@ -250,27 +269,49 @@ class DataPreProcessor:
         """
         print("[INFO]: Starting adjusted price calculation...")
 
-        self.con.execute("""
-        CREATE TABLE IF NOT EXISTS bhav_adjusted_prices (
-            SYMBOL VARCHAR,
-            SERIES VARCHAR,
-            DATE1 DATE,
-            PREV_CLOSE DOUBLE,
-            OPEN_PRICE DOUBLE,
-            HIGH_PRICE DOUBLE,
-            LOW_PRICE DOUBLE,   
-            LAST_PRICE DOUBLE,
-            CLOSE_PRICE DOUBLE,
-            ADJ_CLOSE_PRICE DOUBLE,
-            AVG_PRICE DOUBLE,
-            TTL_TRD_QNTY BIGINT,
-            TURNOVER_LACS DOUBLE,
-            NO_OF_TRADES BIGINT,
-            DELIV_QTY BIGINT,
-            DELIV_PER DOUBLE,
-            PRIMARY KEY (SYMBOL, SERIES, DATE1)
-        );
-        """)
+        if CREATE_TABLES:
+            # Create bhav_complete_data table if it doesn't exist
+            self.con.execute("""
+            CREATE TABLE IF NOT EXISTS bhav_complete_data (
+                SYMBOL VARCHAR,
+                SERIES VARCHAR,
+                DATE1 DATE,
+                PREV_CLOSE DOUBLE,
+                OPEN_PRICE DOUBLE,
+                HIGH_PRICE DOUBLE,
+                LOW_PRICE DOUBLE,   
+                LAST_PRICE DOUBLE,
+                CLOSE_PRICE DOUBLE,
+                AVG_PRICE DOUBLE,
+                TTL_TRD_QNTY BIGINT,
+                TURNOVER_LACS DOUBLE,
+                NO_OF_TRADES BIGINT,
+                DELIV_QTY BIGINT,
+                DELIV_PER DOUBLE,
+                PRIMARY KEY (SYMBOL, SERIES, DATE1)
+            );
+            """)
+            self.con.execute("""
+            CREATE TABLE IF NOT EXISTS bhav_adjusted_prices (
+                SYMBOL VARCHAR,
+                SERIES VARCHAR,
+                DATE1 DATE,
+                PREV_CLOSE DOUBLE,
+                OPEN_PRICE DOUBLE,
+                HIGH_PRICE DOUBLE,
+                LOW_PRICE DOUBLE,   
+                LAST_PRICE DOUBLE,
+                CLOSE_PRICE DOUBLE,
+                ADJ_CLOSE_PRICE DOUBLE,
+                AVG_PRICE DOUBLE,
+                TTL_TRD_QNTY BIGINT,
+                TURNOVER_LACS DOUBLE,
+                NO_OF_TRADES BIGINT,
+                DELIV_QTY BIGINT,
+                DELIV_PER DOUBLE,
+                PRIMARY KEY (SYMBOL, SERIES, DATE1)
+            );
+            """)
 
         print("[INFO]: Fetching price and corporate action data...")
         prices_df = self.con.execute("""
@@ -400,18 +441,20 @@ class DataPreProcessor:
             
             final_df = final_df[target_column_order]
             
-            self.con.register('tmp_adjusted_prices', final_df)
-            self.con.execute("""
-                INSERT OR IGNORE INTO bhav_adjusted_prices
-                SELECT *
-                FROM tmp_adjusted_prices;
-            """)
-            self.con.unregister('tmp_adjusted_prices')
-            print(f"[INFO]: Successfully created 'bhav_adjusted_prices' table with {len(final_df):,} records.")
-
-            # Optional: Export to CSV for verification
+            # Export to CSV for verification
             final_df.to_csv('data/bhav_adjusted_prices.csv', index=False)
-            print(f"[INFO]: Adjusted price data also exported to: data/bhav_adjusted_prices.csv")
+            print(f"[INFO]: Adjusted price data exported to: data/bhav_adjusted_prices.csv")
+            
+            if CREATE_TABLES:
+                self.con.register('tmp_adjusted_prices', final_df)
+                self.con.execute("""
+                    INSERT OR IGNORE INTO bhav_adjusted_prices
+                    SELECT *
+                    FROM tmp_adjusted_prices;
+                """)
+                self.con.unregister('tmp_adjusted_prices')
+                print(f"[INFO]: Successfully created 'bhav_adjusted_prices' table with {len(final_df):,} records.")
+
         else:
             print("[INFO]: No data was processed for adjusted prices.")
 
@@ -469,21 +512,34 @@ class DataPreProcessor:
         yfin_df_long['DATE1'] = pd.to_datetime(yfin_df_long['DATE1']).dt.date
         print(f"Successfully processed {len(yfin_df_long)} records from Yahoo Finance.")
 
-        # 3. Fetch your calculated data from the database
-        print("Fetching data from local 'bhav_adjusted_prices' table...")
-        symbols_tuple = tuple(symbol_list)
-        if self.con is None:
-            self.con = duckdb.connect(database='data/eod.duckdb', read_only=False)
-        bhav_adj_df = self.con.execute(f"""
-            SELECT SYMBOL, DATE1, CLOSE_PRICE, ADJ_CLOSE_PRICE
-            FROM bhav_adjusted_prices
-            WHERE SYMBOL IN {symbols_tuple}
-            AND DATE1 BETWEEN '{start_date.strftime('%Y-%m-%d')}' AND '{end_date.strftime('%Y-%m-%d')}'
-            ORDER BY SYMBOL, DATE1
-        """).df()
-        bhav_adj_df['DATE1'] = pd.to_datetime(bhav_adj_df['DATE1']).dt.date
-        print(f"Successfully fetched {len(bhav_adj_df)} records from local database.")
-
+        if CREATE_TABLES:
+            # Fetch your calculated data from the database
+            print("Fetching data from local 'bhav_adjusted_prices' table...")
+            symbols_tuple = tuple(symbol_list)
+            if self.con is None:
+                self.con = duckdb.connect(database='data/eod.duckdb', read_only=False)
+            bhav_adj_df = self.con.execute(f"""
+                SELECT SYMBOL, DATE1, CLOSE_PRICE, ADJ_CLOSE_PRICE
+                FROM bhav_adjusted_prices
+                WHERE SYMBOL IN {symbols_tuple}
+                AND DATE1 BETWEEN '{start_date.strftime('%Y-%m-%d')}' AND '{end_date.strftime('%Y-%m-%d')}'
+                ORDER BY SYMBOL, DATE1
+            """).df()
+            bhav_adj_df['DATE1'] = pd.to_datetime(bhav_adj_df['DATE1']).dt.date
+            print(f"Successfully fetched {len(bhav_adj_df)} records from local database.")
+        else:
+            # print("No data found in local 'bhav_adjusted_prices' table for the specified symbols and date range.")
+            # Fetch data from csv file if available
+            bhav_adj_files = glob.glob('data/bhav_adjusted_prices.csv')
+            if bhav_adj_files:
+                print("Reading data from local CSV file...")
+                bhav_adj_df = pd.read_csv(bhav_adj_files[0])
+                bhav_adj_df['DATE1'] = pd.to_datetime(bhav_adj_df['DATE1']).dt.date
+                bhav_adj_df = bhav_adj_df[bhav_adj_df['SYMBOL'].isin(symbol_list)]
+                print(f"Successfully read {len(bhav_adj_df)} records from CSV file.")
+            else:
+                print("No data found in local 'bhav_adjusted_prices' table or CSV file for the specified symbols and date range.")
+                return
         # 4. Merge the two DataFrames for direct comparison
         merged_df = pd.merge(
             yfin_df_long,
@@ -550,8 +606,8 @@ class DataPreProcessor:
         merged_df.to_csv(output_path, index=False)
         print(f"\nDetailed comparison saved to: {output_path}")
  
-    def preprocess_data(self):
-        self.preprocess_ca()
+    def preprocess_data(self, corp_actions_csv='data/CF-CA-equities.csv'):
+        self.preprocess_ca(corp_actions_csv)
         self.calculate_adjusted_prices()
         self.compare_adj_close()
         
@@ -567,8 +623,10 @@ if __name__ == "__main__":
         # 'CRISIL': 'CRISIL.NS',
         # 'DCMSRIND': 'DCMSRIND.NS',
     }
+    corp_actions_csv = 'data/CF-CA-equities.csv'
+    CREATE_TABLES = False
     pre_processor = DataPreProcessor(startDate=fromDate, endDate=toDate, tickerDict=tickerDict, con=con)
-    pre_processor.preprocess_data()
+    pre_processor.preprocess_data(corp_actions_csv)
     print("Data preprocessing completed successfully!")
     con.close()
 
