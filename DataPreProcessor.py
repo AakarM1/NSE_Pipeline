@@ -1,3 +1,4 @@
+from time import time
 import traceback
 import duckdb
 import pandas as pd
@@ -469,7 +470,7 @@ class DataPreProcessor:
         print("="*60)
         
         if not self.startDate or not self.endDate:
-            print("Error: Start date and end date must be provided for comparison.")
+            print("[ERROR]: Start date and end date must be provided for comparison.")
             return
         
         # Convert string dates to datetime objects if needed
@@ -489,11 +490,11 @@ class DataPreProcessor:
         ticker_list = list(symbols.values())
         
         # 2. Fetch data from Yahoo Finance
-        print(f"Fetching data from Yahoo Finance for {len(ticker_list)} ticker(s)...")
+        print(f"[INFO]: Fetching data from Yahoo Finance for {len(ticker_list)} ticker(s)...")
         yfin_df = yfinance.download(ticker_list, start=start_date, end=end_date, auto_adjust=False, group_by='ticker')
         
         if yfin_df.empty:
-            print("Could not download any data from Yahoo Finance. Aborting comparison.")
+            print("[WARNING]: Could not download any data from Yahoo Finance. Aborting comparison.")
             return
         
         # Reformat the multi-index yfinance DataFrame into a clean, long-format DataFrame
@@ -510,11 +511,11 @@ class DataPreProcessor:
         yfin_df_long = pd.concat(yfin_cleaned_list).reset_index()
         yfin_df_long = yfin_df_long.rename(columns={'Date': 'DATE1', 'Symbol': 'SYMBOL'})
         yfin_df_long['DATE1'] = pd.to_datetime(yfin_df_long['DATE1']).dt.date
-        print(f"Successfully processed {len(yfin_df_long)} records from Yahoo Finance.")
+        print(f"[INFO]: Successfully processed {len(yfin_df_long)} records from Yahoo Finance.")
 
         if CREATE_TABLES:
             # Fetch your calculated data from the database
-            print("Fetching data from local 'bhav_adjusted_prices' table...")
+            print("[INFO]: Fetching data from local 'bhav_adjusted_prices' table...")
             symbols_tuple = tuple(symbol_list)
             if self.con is None:
                 self.con = duckdb.connect(database='data/eod.duckdb', read_only=False)
@@ -526,19 +527,19 @@ class DataPreProcessor:
                 ORDER BY SYMBOL, DATE1
             """).df()
             bhav_adj_df['DATE1'] = pd.to_datetime(bhav_adj_df['DATE1']).dt.date
-            print(f"Successfully fetched {len(bhav_adj_df)} records from local database.")
+            print(f"[INFO]: Successfully fetched {len(bhav_adj_df)} records from local database.")
         else:
             # print("No data found in local 'bhav_adjusted_prices' table for the specified symbols and date range.")
             # Fetch data from csv file if available
             bhav_adj_files = glob.glob('data/bhav_adjusted_prices.csv')
             if bhav_adj_files:
-                print("Reading data from local CSV file...")
+                print("[INFO]: Reading data from local CSV file...")
                 bhav_adj_df = pd.read_csv(bhav_adj_files[0])
                 bhav_adj_df['DATE1'] = pd.to_datetime(bhav_adj_df['DATE1']).dt.date
                 bhav_adj_df = bhav_adj_df[bhav_adj_df['SYMBOL'].isin(symbol_list)]
-                print(f"Successfully read {len(bhav_adj_df)} records from CSV file.")
+                print(f"[INFO]: Successfully read {len(bhav_adj_df)} records from CSV file.")
             else:
-                print("No data found in local 'bhav_adjusted_prices' table or CSV file for the specified symbols and date range.")
+                print("[WARNING]: No data found in local 'bhav_adjusted_prices' table or CSV file for the specified symbols and date range.")
                 return
         # 4. Merge the two DataFrames for direct comparison
         merged_df = pd.merge(
@@ -550,7 +551,7 @@ class DataPreProcessor:
         )
         
         if merged_df.empty:
-            print("No common records found between Yahoo Finance and local data for the given symbols and dates.")
+            print("[WARNING]: No common records found between Yahoo Finance and local data for the given symbols and dates.")
             return
 
         # 5. Calculate differences and round values
@@ -571,9 +572,9 @@ class DataPreProcessor:
         adj_close_accuracy = (adj_close_matches / total_records) * 100
         
         print("\n--- COMPARISON SUMMARY ---")
-        print(f"Total Common Records Analyzed: {total_records}")
-        print(f"Close Price Accuracy (rounded to 2dp):   {close_accuracy:.2f}% ({close_matches}/{total_records} matches)")
-        print(f"Adj Close Price Accuracy (rounded to 2dp): {adj_close_accuracy:.2f}% ({adj_close_matches}/{total_records} matches)")
+        print(f"[INFO]: Total Common Records Analyzed: {total_records}")
+        print(f"[INFO]: Close Price Accuracy (rounded to 2dp):   {close_accuracy:.2f}% ({close_matches}/{total_records} matches)")
+        print(f"[INFO]: Adj Close Price Accuracy (rounded to 2dp): {adj_close_accuracy:.2f}% ({adj_close_matches}/{total_records} matches)")
 
         # 7. Display sample data
         print("\n--- SAMPLE COMPARISON DATA ---")
@@ -588,15 +589,15 @@ class DataPreProcessor:
         sample_diff_df = merged_df[merged_df['adj_close_diff'] > 0].sort_values(by='adj_close_diff', ascending=False)
         
         if not sample_diff_df.empty:
-            print("\nSample of Mismatched Adjusted Close Prices:")
+            print("\n[INFO]: Sample of Mismatched Adjusted Close Prices:")
             print(sample_diff_df[display_cols].head(10).to_string(index=False))
         else:
-            print("\nNo mismatches found in Adjusted Close Prices!")
+            print("\n[INFO]: No mismatches found in Adjusted Close Prices!")
 
         # Show a sample of matching records
         sample_match_df = merged_df[merged_df['adj_close_diff'] == 0]
         if not sample_match_df.empty:
-            print("\nSample of Matching Adjusted Close Prices:")
+            print("\n[INFO]: Sample of Matching Adjusted Close Prices:")
             print(sample_match_df[display_cols].head(10).to_string(index=False))
 
         # 8. Save the detailed comparison to a CSV file
@@ -604,7 +605,7 @@ class DataPreProcessor:
         # Add the names of symbols to the output path
         output_path = output_path.replace("yfin_vs_bhav", f"yfin_vs_bhav_{'_'.join(self.tickerDict.keys())}")
         merged_df.to_csv(output_path, index=False)
-        print(f"\nDetailed comparison saved to: {output_path}")
+        print(f"\n[INFO]: Detailed comparison saved to: {output_path}")
  
     def preprocess_data(self, corp_actions_csv='data/CF-CA-equities.csv'):
         self.preprocess_ca(corp_actions_csv)
@@ -625,10 +626,14 @@ if __name__ == "__main__":
     }
     corp_actions_csv = 'data/CF-CA-equities.csv'
     CREATE_TABLES = False
+    start_time = time()
     pre_processor = DataPreProcessor(startDate=fromDate, endDate=toDate, tickerDict=tickerDict, con=con)
     pre_processor.preprocess_data(corp_actions_csv)
-    print("Data preprocessing completed successfully!")
+    print("[INFO]: Data preprocessing completed successfully!")
     con.close()
+    end_time = time()
+    elapsed_time = end_time - start_time
+    print(f"[INFO]: Total time for preprocessing: {elapsed_time:.2f} seconds")
 
 
 

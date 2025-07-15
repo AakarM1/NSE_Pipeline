@@ -9,4 +9,6 @@ __pycache__/
 .venv/
 .vscode/
 sec_del/
+bhav/
+bhav_sec/
 yfin*.csv

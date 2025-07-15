@@ -1,3 +1,4 @@
+from time import time
 import pandas as pd
 import traceback
 import duckdb
@@ -115,5 +116,9 @@ def process_bulk_deals(bulk_deals_csv, con):
 if __name__ == "__main__":
     bulk_deals_csv = 'data/Bulk-Deals.csv'
     con = duckdb.connect(database='data/eod.duckdb', read_only=False)
+    start_time = time()
     process_bulk_deals(bulk_deals_csv, con)
     con.close()
+    end_time = time()
+    print(f"[INFO]: Bulk deals processing completed in {end_time - start_time:.2f} seconds.")
+    print("[INFO]: Process completed successfully.")
