@@ -543,7 +543,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     con = duckdb.connect(database='data/eod.duckdb', read_only=False)
     fromDate = '2016-01-01'
-    toDate = (pd.Timestamp.today() - pd.Timedelta(days=5)).strftime('%Y-%m-%d') #'2025-07-01'
+    toDate = (pd.Timestamp.today() - pd.Timedelta(days=1)).strftime('%Y-%m-%d') #'2025-07-01'
     start_time = time.time()
     retriever = DataRetriever(fromDate, toDate, con)
     retriever.retrieve_bhav_data()
