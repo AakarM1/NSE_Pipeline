@@ -53,7 +53,7 @@ class DataRetriever:
             if result and result[0]:
                 self.from_date = str(result[0] + pd.Timedelta(days=1))
         except Exception as e:
-            logging.error(f"Error checking latest date in database: {e}")
+            logging.error(f"[WARNING]: Error checking latest date in database. Possible no dataset created yet.")
         print(f"[INFO]: Using from_date: {self.from_date} for downloading data.")
 
     def download_and_save_file(self, url: str, filename: str) -> bool:
