@@ -98,7 +98,22 @@ class DataRetriever:
                 missed_dates, skipped, downloaded = [], 0, 0
 
                 try:
-                    for dt in self.dates:
+                    # If key is bhav_sec change dates from 2019 to endDate
+                    if key == 'bhav_sec':
+                        # For bhav_sec, we need to download from 2019-01-01 to the end date
+                        start_date = pd.Timestamp('2019-01-01')
+                        end_date = pd.Timestamp(self.to_date)
+                        dates = pd.bdate_range(start=start_date, end=end_date)
+                        print(f"[INFO]: Changed extracting dates for 'bhav_sec' key from {start_date} to {end_date}.")
+                    elif key == 'bhav':
+                        # For bhav, we need to download from start date to 2024-08-01
+                        start_date = pd.Timestamp(self.from_date)
+                        end_date = pd.Timestamp('2024-08-01')
+                        dates = pd.bdate_range(start=start_date, end=end_date)
+                        print(f"[INFO]: Changed extracting dates for 'bhav' key from {start_date} to {end_date}.")
+                    else:
+                        dates = self.dates
+                    for dt in dates:
                         # --- catch URL‐formatting errors and bail out on this key ---
                         try:
                             url = pat.format(**func(dt))
@@ -241,7 +256,7 @@ class DataRetriever:
                 
                 self.con.register('tmp_bhav_old', df_mapped)
                 self.con.execute("""
-                INSERT OR IGNORE INTO bhav_old
+                INSERT OR REPLACE INTO bhav_old
                 SELECT * FROM tmp_bhav_old;
                 """)
             except Exception as e:
@@ -290,7 +305,7 @@ class DataRetriever:
         );
         """)
         self.con.execute("""
-        INSERT OR IGNORE INTO sec_del
+        INSERT OR REPLACE INTO sec_del
         SELECT * FROM tmp_sec_del;
         """)
         print("[INFO]: SEC_DEL data created successfully.")
@@ -322,7 +337,7 @@ class DataRetriever:
 
         # 2) Insert merged bhav_old + sec_del (using cleaned data)
         self.con.execute(r"""
-        INSERT OR IGNORE INTO eod_cash
+        INSERT OR REPLACE INTO eod_cash
         SELECT
           o.SYMBOL                                       AS SYMBOL,
           o.SERIES                                       AS SERIES,
@@ -405,7 +420,7 @@ class DataRetriever:
         );
         """)
         self.con.execute("""
-        INSERT OR IGNORE INTO new_bhav
+        INSERT OR REPLACE INTO new_bhav
         SELECT * FROM tmp_new_bhav;
         """)
         print("[INFO]: new_bhav data table created successfully.")
@@ -439,7 +454,7 @@ class DataRetriever:
 
         # First, insert all new_bhav data (prioritized)
         self.con.execute("""
-        INSERT OR IGNORE INTO bhav_complete_data
+        INSERT OR REPLACE INTO bhav_complete_data
         SELECT
           SYMBOL,
           SERIES,
@@ -463,7 +478,7 @@ class DataRetriever:
         # Then, insert eod_cash data for records NOT already in new_bhav
         if self.from_date <= "2024-07-04":
             self.con.execute("""
-            INSERT OR IGNORE INTO bhav_complete_data
+            INSERT OR REPLACE INTO bhav_complete_data
             SELECT
             e.SYMBOL,
             e.SERIES,
