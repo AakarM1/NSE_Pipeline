@@ -32,7 +32,7 @@ class DataRetriever:
     """
     def __init__(self, fromDate, toDate, con):
         ## Parameters
-        self.dictKeys = ['sec_del', 'bhav', 'bhav_sec'] #list(patterns.file_patterns.keys()) #equity_info, hist_data, ipo_eq, nse_oi, trade_info
+        self.dictKeys = ['bhav', 'sec_del', 'bhav_sec'] #list(patterns.file_patterns.keys()) #equity_info, hist_data, ipo_eq, nse_oi, trade_info
         self.key: str = "bhav_sec"  # Should be one of the available keys
         self.from_date: str = fromDate #"2024-01-01"
         self.to_date: str = toDate #"2025-01-01"
@@ -40,20 +40,30 @@ class DataRetriever:
         self.sleep: float = 0.5
         self.DOWNLOAD_ALL_KEYS = True  # Set to True if you want to download all keys from dictKeys
         self.client = httpx.Client()
-        self.con = con
+        self.con = con        
         self.calculate_from_date()  # Calculate from_date based on existing data in the database
         self.dates = pd.bdate_range(start=self.from_date, end=self.to_date)
         if len(self.dates) == 0:
-            raise ValueError("[ERROR]: No business dates found in the specified range.")
+            print("[ERROR]: No business dates found in the specified range.")
         print(f"[INFO]: Dates to download: {self.dates}")
     def calculate_from_date(self):
-        # Check the database for the latest date, if the table exists
+        # Check if bhav_complete_data.csv exists and get latest date from it using pandas
         try:
-            result = self.con.execute("SELECT MAX(DATE1) FROM bhav_complete_data").fetchone()
-            if result and result[0]:
-                self.from_date = str(result[0] + pd.Timedelta(days=1))
+            # Try to read from existing CSV file first
+            if os.path.exists('data/bhav_complete_data.csv'):
+                existing_data = pd.read_csv('data/bhav_complete_data.csv')
+                if not existing_data.empty and 'DATE1' in existing_data.columns:
+                    existing_data['DATE1'] = pd.to_datetime(existing_data['DATE1'])
+                    latest_date = existing_data['DATE1'].max()
+                    self.from_date = str((latest_date + pd.Timedelta(days=1)).date())
+                    print(f"[INFO]: Found existing data. Latest date: {latest_date.date()}")
+            else:
+                # Fallback to database query if CSV doesn't exist
+                result = self.con.execute("SELECT MAX(DATE1) FROM bhav_complete_data").fetchone()
+                if result and result[0]:
+                    self.from_date = str(result[0] + pd.Timedelta(days=1))
         except Exception as e:
-            logging.error(f"[WARNING]: Error checking latest date in database. Possible no dataset created yet.")
+            logging.warning(f"[WARNING]: Error checking latest date in existing data: {e}. Using original from_date.")
         print(f"[INFO]: Using from_date: {self.from_date} for downloading data.")
 
     def download_and_save_file(self, url: str, filename: str) -> bool:
@@ -85,7 +95,7 @@ class DataRetriever:
         # Looped download for all keys
         
         # If fromDate is after 4th july 2024, ignore the 'bhav_sec' and 'bhav' key
-        if self.from_date > "2024-07-04":
+        if self.from_date > "2024-07-04" and SKIP==True:
             self.dictKeys = [key for key in self.dictKeys if key not in ['sec_del', 'bhav']]
             print(f"[INFO]: Skipping 'sec_del' and 'bhav' keys as fromDate is after 4th July 2024. Remaining keys: {self.dictKeys}")
         
@@ -179,44 +189,24 @@ class DataRetriever:
         print(f"[INFO]: Number of downloaded dates = {downloaded}")
 
     def create_oldBhav(self):
-        # Create or replace the bhav_old table
-        # This table will hold the old bhav data from cm*bhav.csv files
-        if self.from_date > "2024-07-04":
+        # Create bhav_old data using pandas instead of SQL
+        if self.from_date > "2024-07-04" and SKIP==True:
             print("[INFO]: Skipping old_bhav data as fromDate is after 4th July 2024.")
             return
-        self.con.execute("""
-        CREATE TABLE IF NOT EXISTS bhav_old (
-          SYMBOL         VARCHAR,
-          SERIES         VARCHAR,
-          DATE1          DATE,
-          PREV_CLOSE     DOUBLE,
-          OPEN_PRICE     DOUBLE,
-          HIGH_PRICE     DOUBLE,
-          LOW_PRICE      DOUBLE,
-          LAST_PRICE     DOUBLE,
-          CLOSE_PRICE    DOUBLE,
-          AVG_PRICE      DOUBLE,
-          TTL_TRD_QNTY  BIGINT,
-          TURNOVER_LACS  DOUBLE,
-          NO_OF_TRADES   BIGINT,
-          DELIV_QTY     BIGINT,
-          DELIV_PER     DOUBLE,
-          PRIMARY KEY (SYMBOL, SERIES, DATE1)
-        );
-        """)
 
-        # Go through data/bhav/cm*bhav.csv files. Take each csv, and insert into bhav_old table
-
+        # Go through data/bhav/cm*bhav.csv files. Take each csv, and process with pandas
         old_files = glob.glob('data/bhav/cm*bhav.csv')
+        df_list = []
+        
         for fp in old_files:
             try:
                 # Read CSV with keep_default_na=False to prevent 'NA' from being converted to NaN
                 df = pd.read_csv(fp, keep_default_na=False)
-                print(f"[INFO]: Processing file: {fp}")
-                # print(f"Columns: {df.columns.tolist()}")
+                # print(f"[INFO]: Processing file: {fp}")
                 
                 # Drop unnamed columns
                 df = df.drop(columns=[col for col in df.columns if col.startswith('Unnamed')], errors='ignore')
+                
                 # Handle timestamp format - it can be in format '01-APR-2016' or '01-APR-20' format
                 if 'TIMESTAMP' in df.columns:
                     try:
@@ -244,7 +234,7 @@ class DataRetriever:
                 df_mapped['LOW_PRICE'] = df['LOW']
                 df_mapped['LAST_PRICE'] = df['LAST']
                 df_mapped['CLOSE_PRICE'] = df['CLOSE']
-                df_mapped['AVG_PRICE'] = (df['TOTTRDVAL'] / df['TOTTRDQTY']) #.round(2)  # Calculate average price and round to 2 decimals - shows some error still so handled in sql
+                df_mapped['AVG_PRICE'] = (df['TOTTRDVAL'] / df['TOTTRDQTY'])  # Calculate average price
                 df_mapped['TTL_TRD_QNTY'] = df['TOTTRDQTY']
                 df_mapped['TURNOVER_LACS'] = df['TOTTRDVAL'] / 100000.0  # Convert to lakhs
                 df_mapped['NO_OF_TRADES'] = df['TOTALTRADES']
@@ -253,23 +243,55 @@ class DataRetriever:
                 
                 # Filter out rows with empty SYMBOL or SERIES
                 df_mapped = df_mapped[(df_mapped['SYMBOL'] != '') & (df_mapped['SERIES'] != '')]
+                df_list.append(df_mapped)
                 
-                self.con.register('tmp_bhav_old', df_mapped)
-                self.con.execute("""
-                INSERT OR REPLACE INTO bhav_old
-                SELECT * FROM tmp_bhav_old;
-                """)
             except Exception as e:
                 print(f"[ERROR]: processing file {fp}: {e}")
-        print("[INFO]: bhav_old data created successfully.")
-        # # Save the bhav_old table to a CSV file
-        # bhav_old_df = self.con.execute("SELECT * FROM bhav_old").df()
-        # bhav_old_df.to_csv('data/bhav_old.csv', index=False)
+        
+        # Combine all dataframes
+        if df_list:
+            bhav_old_df = pd.concat(df_list, ignore_index=True)
+            bhav_old_df = bhav_old_df.drop_duplicates()
+            self.con.execute("""
+            CREATE TABLE IF NOT EXISTS bhav_old (
+            SYMBOL         VARCHAR,
+            SERIES         VARCHAR,
+            DATE1          DATE,
+            PREV_CLOSE     DOUBLE,
+            OPEN_PRICE     DOUBLE,
+            HIGH_PRICE     DOUBLE,
+            LOW_PRICE      DOUBLE,
+            LAST_PRICE     DOUBLE,
+            CLOSE_PRICE    DOUBLE,
+            AVG_PRICE      DOUBLE,
+            TTL_TRD_QNTY  BIGINT,
+            TURNOVER_LACS  DOUBLE,
+            NO_OF_TRADES   BIGINT,
+            DELIV_QTY     BIGINT,
+            DELIV_PER     DOUBLE,
+            PRIMARY KEY (SYMBOL, SERIES, DATE1)
+            );
+            """)
+            self.con.register('bhav_old_df', bhav_old_df)
+            self.con.execute("""
+            INSERT OR REPLACE INTO bhav_old
+            SELECT * FROM bhav_old_df;
+            """)
+            self.con.unregister('bhav_old_df')
+            print(f"[INFO]: bhav_old data created successfully. Shape: {bhav_old_df.shape}")
+            # Print date range of bhav_old_df
+            if not bhav_old_df.empty:
+                date_range = bhav_old_df['DATE1'].min(), bhav_old_df['DATE1'].max()
+                print(f"[INFO]: Date range of bhav_old data: {date_range[0]} to {date_range[1]}")
+
+        else:
+            print("[WARNING]: No bhav_old data files found.")
         
     def create_secDel(self):
-        if self.from_date > "2024-07-04":
+        if self.from_date > "2024-07-04" and SKIP==True:
             print("[INFO]: Skipping sec_del data as fromDate is after 4th July 2024.")
             return
+        
         sec_frames = []
         for fp in glob.glob('data/sec_del/MTO_*.DAT'):
             df = pd.read_csv(fp, skiprows=4, header=None)
@@ -291,27 +313,37 @@ class DataRetriever:
             df['DELIV_QTY'] = df['DELIV_QTY'].fillna(0)
             df['DELIV_PER'] = df['DELIV_PER'].fillna(0.0)
             sec_frames.append(df)
-        df_sec = pd.concat(sec_frames, ignore_index=True)
-        print("[INFO]: SEC_DEL data shape:", df_sec.shape)
-        self.con.register('tmp_sec_del', df_sec)
-        self.con.execute("""
-        CREATE TABLE IF NOT EXISTS sec_del (
-          SYMBOL         VARCHAR,
-          SERIES         VARCHAR,
-          DELIV_QTY      BIGINT,
-          DELIV_PER      DOUBLE,
-          DATE1          DATE,
-          PRIMARY KEY (SYMBOL, SERIES, DATE1)
-        );
-        """)
-        self.con.execute("""
-        INSERT OR REPLACE INTO sec_del
-        SELECT * FROM tmp_sec_del;
-        """)
-        print("[INFO]: SEC_DEL data created successfully.")
         
+        if sec_frames:
+            sec_del_df = pd.concat(sec_frames, ignore_index=True)
+            # Remove duplicates based on primary key columns
+            sec_del_df = sec_del_df.drop_duplicates()
+            self.con.execute("""
+            CREATE TABLE IF NOT EXISTS sec_del (
+            SYMBOL         VARCHAR,
+            SERIES         VARCHAR,
+            DELIV_QTY      BIGINT,
+            DELIV_PER      DOUBLE,
+            DATE1          DATE,
+            PRIMARY KEY (SYMBOL, SERIES, DATE1)
+            );
+            """)
+            self.con.register('sec_del_df', sec_del_df)
+            self.con.execute("""
+            INSERT OR REPLACE INTO sec_del
+            SELECT * FROM sec_del_df;
+            """)
+            self.con.unregister('sec_del_df')
+            print(f"[INFO]: SEC_DEL data created successfully. Shape: {sec_del_df.shape}")
+            # Print date range of sec_del data
+            if not sec_del_df.empty:
+                date_range = sec_del_df['DATE1'].min(), sec_del_df['DATE1'].max()
+                print(f"[INFO]: Date range of sec_del data: {date_range[0]} to {date_range[1]}")
+        else:
+            print("[WARNING]: No sec_del data files found.")
+
     def merge_oldBhav_secDel(self):
-        if self.from_date > "2024-07-04":
+        if self.from_date > "2024-07-04" and SKIP==True:
             print("[INFO]: Skipping merge of old_bhav and sec_del data as fromDate is after 4th July 2024.")
             return
         self.con.execute("""
@@ -371,33 +403,82 @@ class DataRetriever:
         #     'DELIV_QTY', 'DELIV_PER'
         # ])
         # eod_cash_df.to_csv('data/eod_cash.csv', index=False)
-        
+        # print date range of eod_cash
+        eod_cash = self.con.execute("SELECT DATE1 FROM eod_cash ORDER BY DATE1").df()
+        if not eod_cash.empty:
+            date_range = eod_cash['DATE1'].min(), eod_cash['DATE1'].max()
+            print(f"[INFO]: Date range of eod_cash data: {date_range[0]} to {date_range[1]}")
+
         print("[INFO]: Merged old_bhav and sec_del data into eod_cash table successfully.")
         
     def create_newBhav(self):
         print("[INFO]: Processing new_bhav csv data...")
-        new_files = [fp for fp in glob.glob('data/bhav_sec/sec_bhavdata_full_*.csv') if fp.lower().endswith('.csv')]
-        df_list = []
-        for fp in new_files:
-            # print(fp)
-            df = pd.read_csv(fp, )
-            df_list.append(df)
-        df_new = pd.concat(df_list, ignore_index=True)
+        new_files = [f for f in os.listdir('data/bhav_sec/') if f.endswith('.csv')]
+        main_df = []
+        manual_rows = 0
+        
+        for file in new_files:
+            df = pd.read_csv(f"data/bhav_sec/{file}")
+            main_df.append(df)
+            manual_rows += len(df)
+            # individual_dups = df.duplicated().sum()
+            # print(f"[INFO]: Processed file: {file} - Shape: {df.shape} - Individual duplicates: {individual_dups}")
+            
+        if not main_df:
+            print("[INFO]: No new_bhav data files found.")
+            return
+            
+        # Concatenate all dataframes
+        df_new = pd.concat(main_df, ignore_index=True)
+        print(f"[INFO]: Length of concatenated file: {len(df_new)} vs manual length: {manual_rows}")
+        
+        # Check for duplicates after concatenation
+        total_duplicates = df_new.duplicated().sum()
+        print(f"[INFO]: Total duplicate rows after concatenation: {total_duplicates}")
+        if total_duplicates > 0:
+            print(f"[WARNING]: Found {total_duplicates} duplicate rows in new_bhav data. These will be removed.")
+        df_new = df_new.drop_duplicates()  
+        print(f"[INFO]: Total rows after removing duplicates: {len(df_new)}")
+        # Clean and process the data (but keep SOURCE_FILE for tracking)
         df_new.columns = df_new.columns.str.strip()
+        
         # Fix formatting issues by trimming SYMBOL and SERIES columns
         df_new['SYMBOL'] = df_new['SYMBOL'].str.strip().fillna('')
         df_new['SERIES'] = df_new['SERIES'].str.strip().fillna('')
+        
         # Filter out rows with empty SYMBOL or SERIES
+        before_filter = len(df_new)
         df_new = df_new[(df_new['SYMBOL'] != '') & (df_new['SERIES'] != '')]
+        after_filter = len(df_new)
+        print(f"[INFO]: Filtered out {before_filter - after_filter} rows with empty SYMBOL/SERIES")
+        
+        # Convert DATE1 to proper date format
         df_new['DATE1'] = pd.to_datetime(
             df_new['DATE1'].str.strip(),      
             format='%d-%b-%Y',                
             dayfirst=True                     
         ).dt.date
+        
+        # Convert numeric columns
         df_new['LAST_PRICE'] = pd.to_numeric(df_new['LAST_PRICE'], errors='coerce')
-        df_new['DELIV_QTY']  = pd.to_numeric(df_new['DELIV_QTY'], downcast='integer', errors='coerce')
-        df_new['DELIV_PER']  = pd.to_numeric(df_new['DELIV_PER'], errors='coerce')
-        # print("New BHAV data shape:", df_new.shape)
+        df_new['DELIV_QTY'] = pd.to_numeric(df_new['DELIV_QTY'], downcast='integer', errors='coerce')
+        df_new['DELIV_PER'] = pd.to_numeric(df_new['DELIV_PER'], errors='coerce')
+        df_new['PREV_CLOSE'] = pd.to_numeric(df_new['PREV_CLOSE'], errors='coerce')
+        df_new['OPEN_PRICE'] = pd.to_numeric(df_new['OPEN_PRICE'], errors='coerce')
+        df_new['HIGH_PRICE'] = pd.to_numeric(df_new['HIGH_PRICE'], errors='coerce')
+        df_new['LOW_PRICE'] = pd.to_numeric(df_new['LOW_PRICE'], errors='coerce')
+        df_new['CLOSE_PRICE'] = pd.to_numeric(df_new['CLOSE_PRICE'], errors='coerce')
+        df_new['AVG_PRICE'] = pd.to_numeric(df_new['AVG_PRICE'], errors='coerce')
+        df_new['TTL_TRD_QNTY'] = pd.to_numeric(df_new['TTL_TRD_QNTY'], downcast='integer', errors='coerce')
+        df_new['TURNOVER_LACS'] = pd.to_numeric(df_new['TURNOVER_LACS'], errors='coerce')
+        df_new['NO_OF_TRADES'] = pd.to_numeric(df_new['NO_OF_TRADES'], downcast='integer', errors='coerce')
+        
+        # Print date range of df_new
+        if not df_new.empty:
+            date_range = df_new['DATE1'].min(), df_new['DATE1'].max()
+            print(f"[INFO]: Date range of new_bhav data: {date_range[0]} to {date_range[1]}")
+        
+        # Save processed data        
         self.con.register('tmp_new_bhav', df_new)
         self.con.execute("""
         CREATE TABLE IF NOT EXISTS new_bhav (
@@ -423,7 +504,11 @@ class DataRetriever:
         INSERT OR REPLACE INTO new_bhav
         SELECT * FROM tmp_new_bhav;
         """)
+        self.con.unregister('tmp_new_bhav')
         print("[INFO]: new_bhav data table created successfully.")
+        
+        print(f"\n[INFO]: new_bhav data created successfully.")
+ 
     
     def create_finalDB(self):
         # Create final comprehensive dataset
@@ -451,6 +536,34 @@ class DataRetriever:
           PRIMARY KEY (SYMBOL, SERIES, DATE1)
         );
         """)
+        # Then, insert eod_cash data for records NOT already in new_bhav
+        self.con.execute("""
+        INSERT OR IGNORE INTO bhav_complete_data
+        SELECT
+        e.SYMBOL,
+        e.SERIES,
+        e.DATE1,
+        e.PREV_CLOSE,
+        e.OPEN_PRICE,
+        e.HIGH_PRICE,
+        e.LOW_PRICE,
+        e.LAST_PRICE,
+        e.CLOSE_PRICE,
+        e.AVG_PRICE,
+        e.TTL_TRD_QNTY,
+        e.TURNOVER_LACS,
+        e.NO_OF_TRADES,
+        e.DELIV_QTY,
+        e.DELIV_PER,
+        'eod_cash' as DATA_SOURCE
+        FROM eod_cash e
+        WHERE NOT EXISTS (
+        SELECT 1 FROM new_bhav n
+        WHERE n.SYMBOL = e.SYMBOL
+            AND n.SERIES = e.SERIES
+            AND n.DATE1 = e.DATE1
+        );
+        """)
 
         # First, insert all new_bhav data (prioritized)
         self.con.execute("""
@@ -475,35 +588,6 @@ class DataRetriever:
         FROM new_bhav;
         """)
 
-        # Then, insert eod_cash data for records NOT already in new_bhav
-        if self.from_date <= "2024-07-04":
-            self.con.execute("""
-            INSERT OR REPLACE INTO bhav_complete_data
-            SELECT
-            e.SYMBOL,
-            e.SERIES,
-            e.DATE1,
-            e.PREV_CLOSE,
-            e.OPEN_PRICE,
-            e.HIGH_PRICE,
-            e.LOW_PRICE,
-            e.LAST_PRICE,
-            e.CLOSE_PRICE,
-            e.AVG_PRICE,
-            e.TTL_TRD_QNTY,
-            e.TURNOVER_LACS,
-            e.NO_OF_TRADES,
-            e.DELIV_QTY,
-            e.DELIV_PER,
-            'eod_cash' as DATA_SOURCE
-            FROM eod_cash e
-            WHERE NOT EXISTS (
-            SELECT 1 FROM new_bhav n
-            WHERE n.SYMBOL = e.SYMBOL
-                AND n.SERIES = e.SERIES
-                AND n.DATE1 = e.DATE1
-            );
-            """)
 
         print("[INFO]: Final comprehensive dataset created successfully.")
         # Get statistics about the final dataset
@@ -552,24 +636,34 @@ class DataRetriever:
         final_data.to_csv('data/bhav_complete_data.csv', index=False)
         print(f"[INFO]: Final dataset exported to: data/bhav_complete_data.csv")
         print(f"[INFO]: File size: {len(final_data):,} records")
-
+    
+   
     
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+    
+    # Initialize database connection (still needed for some fallback operations)
     con = duckdb.connect(database='data/eod.duckdb', read_only=False)
+    
     fromDate = '2016-01-01'
-    toDate = (pd.Timestamp.today() - pd.Timedelta(days=1)).strftime('%Y-%m-%d') #'2025-07-01'
+    toDate = (pd.Timestamp.today() - pd.Timedelta(days=1)).strftime('%Y-%m-%d')
     start_time = time.time()
+    SKIP = False
+    
     retriever = DataRetriever(fromDate, toDate, con)
-    retriever.retrieve_bhav_data()
+    
+    # Run all processing steps using pandas instead of SQL
+    # retriever.retrieve_bhav_data()  
     retriever.create_oldBhav()
-    retriever.create_secDel()
+    retriever.create_secDel() 
     retriever.merge_oldBhav_secDel()
     retriever.create_newBhav()
     retriever.create_finalDB()
+    
     print("[INFO]: Data retrieval completed.")
     con.close()
     end_time = time.time()
     print(f"[INFO]: Total time taken: {end_time - start_time:.2f} seconds")
     print("[INFO]: All operations completed successfully.")
     
+ 
