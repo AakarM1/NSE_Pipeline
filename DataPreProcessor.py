@@ -42,85 +42,8 @@ class DataPreProcessor:
 
     def fetch_corporate_actions(self, corp_actions_csv='data/CF-CA-equities.csv') -> pd.DataFrame:
         df = pd.read_csv(corp_actions_csv)
-        # print(df)
         return df
-        start_date = self.startDate
-        end_date = self.endDate
-
-        try:
-            # 1. Parse input strings into date objects
-            final_start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
-            final_end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
-        except ValueError:
-            print("Error: Invalid date format. Please use 'YYYY-MM-DD'.")
-            return pd.DataFrame()
-
-        print(f"Fetching corporate actions from {final_start_date} to {final_end_date}.")
-
-        # 2. Prepare for fetching (session and headers)
-        base_url = "https://www.nseindia.com/"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36',
-            'Accept': 'application/json, text/javascript, */*; q=0.01',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'X-Requested-With': 'XMLHttpRequest'
-        }
-        
-        session = requests.Session()
-        try:
-            # Perform a single "warm-up" request to get necessary cookies for the session
-            session.get(base_url, headers=headers, timeout=10)
-        except requests.exceptions.RequestException as e:
-            print(f"Error establishing session with NSE: {e}")
-            return pd.DataFrame()
-
-        # 3. Loop through the date range month by month
-        all_data = []
-        current_start_date = final_start_date
-
-        while current_start_date <= final_end_date:
-            # Determine the end date for the current monthly chunk
-            month_end_day = calendar.monthrange(current_start_date.year, current_start_date.month)[1]
-            month_end_date = date(current_start_date.year, current_start_date.month, month_end_day)
-            
-            # The end date for this chunk is the earlier of the month-end or the final end date
-            current_end_date = min(month_end_date, final_end_date)
-            
-            # Format dates for the API URL (DD-MM-YYYY)
-            start_str = current_start_date.strftime('%d-%m-%Y')
-            end_str = current_end_date.strftime('%d-%m-%Y')
-
-            print(f"  > Fetching chunk: {start_str} to {end_str}")
-            api_url = f"https://www.nseindia.com/api/corporate-actions?index=equities&from_date={start_str}&to_date={end_str}"
-            
-            try:
-                response = session.get(api_url, headers=headers, timeout=10)
-                response.raise_for_status()
-                
-                data = response.json()
-                if 'data' in data and data['data']:
-                    all_data.extend(data['data'])
-
-            except requests.exceptions.RequestException as e:
-                print(f"[ERROR]: An error occurred while fetching chunk {start_str} to {end_str}: {e}")
-            
-            # Move to the first day of the next month
-            current_start_date = month_end_date + relativedelta(days=1)
-        
-        if not all_data:
-            print("[WARNING]: No automated corporate actions extracted. Attempting to read from local CSV file.")
-            try:
-                return pd.read_csv('data/CF-CA-equities.csv')
-            except Exception as e:
-                print(f"[ERROR]: An error occurred while reading CSV files: {e}")
-                return pd.DataFrame()
-
-        # 4. Consolidate all fetched data into a single DataFrame
-        df = pd.DataFrame(all_data)
-        # Remove duplicates that might arise from overlapping day fetches (unlikely but safe)
-        df = df.drop_duplicates(subset=['symbol', 'series', 'exDate', 'purpose'])
-        print(f"Successfully fetched a total of {len(df)} unique corporate action records.")
-        return df
+        # TODO: Find a way to fetch this like bhav or sec_del
 
     def preprocess_ca(self, corp_actions_csv='data/CF-CA-equities.csv'):
         df = pd.DataFrame()
@@ -261,7 +184,9 @@ class DataPreProcessor:
             print(f"[INFO]: Successfully created 'corporate_actions' table with {len(df):,} records.")
             self.con.unregister('tmp_corporate_actions')
         
-    def calculate_adjusted_prices(self):
+        return df
+        
+    def calculate_adjusted_prices(self, df):
         """
         Calculates the adjusted closing price for all stocks in bhav_complete_data.
         This function accounts for dividends, stock splits, and bonus issues by
@@ -315,6 +240,7 @@ class DataPreProcessor:
             """)
 
         print("[INFO]: Fetching price and corporate action data...")
+        
         prices_df = self.con.execute("""
             SELECT 
             SYMBOL,
@@ -336,15 +262,17 @@ class DataPreProcessor:
             ORDER BY SYMBOL, DATE1
         """).df()
 
-        ca_df = self.con.execute("""
-            SELECT symbol, ex_date, action_type, dividend_amount,
-                   bonus_ratio_from, bonus_ratio_to,
-                   split_ratio_from, split_ratio_to
-            FROM corporate_actions
-            WHERE action_type IN ('dividend', 'split', 'bonus')
-            ORDER BY symbol, ex_date
-        """).df()
-
+        if CREATE_TABLES:
+            ca_df = self.con.execute("""
+                SELECT symbol, ex_date, action_type, dividend_amount,
+                    bonus_ratio_from, bonus_ratio_to,
+                    split_ratio_from, split_ratio_to
+                FROM corporate_actions
+                WHERE action_type IN ('dividend', 'split', 'bonus')
+                ORDER BY symbol, ex_date
+            """).df()
+        else:
+            ca_df = df.copy()
         if ca_df.empty:
             print("[WARNING]: No corporate actions found to process. Adjusted prices will equal close prices.")
 
@@ -608,8 +536,8 @@ class DataPreProcessor:
         print(f"\n[INFO]: Detailed comparison saved to: {output_path}")
  
     def preprocess_data(self, corp_actions_csv='data/CF-CA-equities.csv'):
-        self.preprocess_ca(corp_actions_csv)
-        self.calculate_adjusted_prices()
+        df = self.preprocess_ca(corp_actions_csv)
+        self.calculate_adjusted_prices(df)
         self.compare_adj_close()
         
         

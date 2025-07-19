@@ -53,18 +53,22 @@ def retrieve_bhav_data(
         start='2024-01-01', 
         end=(pd.Timestamp.today() - pd.Timedelta(days=1)).strftime('%Y-%m-%d')
     ),
-    sleep: float = 0.5
+    sleep: float = 0.5,
+    con: duckdb.DuckDBPyConnection = None
     ):
     """
     Main method to retrieve data based on the specified key and date range.
     It downloads files for the specified key or all keys if DOWNLOAD_ALL_KEYS is True.
     """
+    from_date = None
     try:
+        print("[INFO]: Checking latest date in existing data...")
         result = con.execute("SELECT MAX(DATE1) FROM bhav_complete_data").fetchone()
         if result and result[0]:
             from_date = str(result[0] + pd.Timedelta(days=1))
+            print(f"[INFO]: Latest date in existing data: {from_date}")
     except Exception as e:
-        logging.warning(f"[WARNING]: Error checking latest date in existing data: {e}. Using original from_date.")
+        print(f"[WARNING]: Error checking latest date in existing data: {e}. Using original from_date.")
             
     if from_date:
         dates = pd.bdate_range(
@@ -97,6 +101,7 @@ def retrieve_bhav_data(
                 if os.path.exists(filepath):
                     logging.info(f"[{key}] File exists for {dt}")
                     skipped += 1
+                    names.append(name)
                     continue
 
                 if download_and_save_file(url, filepath):
@@ -131,12 +136,23 @@ def retrieve_bhav_data(
     return names
 
 def create_newBhav(con, names : list = None):
+    # print current bhav shape and date range
+    print("\n[INFO]: Checking existing bhav_complete_data table...")
+    result = con.execute("SELECT COUNT(*), COUNT(DISTINCT SYMBOL), COUNT(DISTINCT SERIES) FROM bhav_complete_data").fetchone()
+    print(f"[INFO]: bhav_complete_data table shape: {result[0]} rows, {result[1]} unique SYMBOLs, {result[2]} unique SERIESs.")
+    date_range = con.execute("SELECT MIN(DATE1), MAX(DATE1) FROM bhav_complete_data").fetchone()
+    print(f"[INFO]: Date range of bhav_complete_data: {date_range[0]} to {date_range[1]}")
+    if names is None or len(names) == 0:
+        print("[INFO]: No bhav_complete_data files found. Skipping processing.")
+        return
     print("[INFO]: Processing new_bhav csv data...")
     new_files = names
     main_df = []
     manual_rows = 0
-    
+    print(f"[INFO]: New files to process: {len(new_files)}")
+    print(f"[INFO]: New files: {new_files}")
     for file in new_files:
+        print(f"[INFO]: Processing file: {file}")
         df = pd.read_csv(f"data/bhav_sec/{file}")
         main_df.append(df)
         manual_rows += len(df)
@@ -190,7 +206,7 @@ def create_newBhav(con, names : list = None):
     
     if not df_new.empty:
         date_range = df_new['DATE1'].min(), df_new['DATE1'].max()
-        print(f"[INFO]: Date range of bhav new data: {date_range[0]} to {date_range[1]}")
+        print(f"[INFO]: Date range of extracted bhav new data: {date_range[0]} to {date_range[1]}")
         # insert df_new into the database
         con.register('bhav_new_data', df_new)
         # insert into existing bhav_complete_data table
@@ -199,7 +215,13 @@ def create_newBhav(con, names : list = None):
                     select * from bhav_new_data
                     where (SYMBOL, SERIES, DATE1) not in (select SYMBOL, SERIES, DATE1 from bhav_complete_data)
         """)
-
+        # print new bhav shape and date range
+        print("\n[INFO]: Checking updated bhav_complete_data table...")
+        result = con.execute("SELECT COUNT(*), COUNT(DISTINCT SYMBOL), COUNT(DISTINCT SERIES) FROM bhav_complete_data").fetchone()
+        print(f"[INFO]: Updated bhav_complete_data table shape: {result[0]} rows, {result[1]} unique SYMBOLs, {result[2]} unique SERIESs.")
+        date_range = con.execute("SELECT MIN(DATE1), MAX(DATE1) FROM bhav_complete_data").fetchone()
+        print(f"[INFO]: Date range of updated bhav_complete_data: {date_range[0]} to {date_range[1]}")
+        
         return df_new
     else:
         print("[WARNING]: Merged data is empty. No records found.")
@@ -213,7 +235,7 @@ if __name__ == "__main__":
     # Initialize database connection (still needed for some fallback operations)
     con = duckdb.connect(database='data/eod.duckdb', read_only=False)
     
-    files = retrieve_bhav_data()
+    files = retrieve_bhav_data(con=con)
     create_newBhav(con, files)
 
     print("[INFO]: Data retrieval completed.")

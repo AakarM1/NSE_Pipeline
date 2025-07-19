@@ -156,8 +156,8 @@ def create_oldBhav():
             df_mapped['TTL_TRD_QNTY'] = df['TOTTRDQTY']
             df_mapped['TURNOVER_LACS'] = df['TOTTRDVAL'] / 100000.0  # Convert to lakhs
             df_mapped['NO_OF_TRADES'] = df['TOTALTRADES']
-            df_mapped['DELIV_QTY'] = 0  # Default to 0, will be updated from sec_del data
-            df_mapped['DELIV_PER'] = 0.0  # Default to 0, will be updated from sec_del data
+            # df_mapped['DELIV_QTY'] = 0  # Default to 0, will be updated from sec_del data
+            # df_mapped['DELIV_PER'] = 0.0  # Default to 0, will be updated from sec_del data
             
             # Filter out rows with empty SYMBOL or SERIES
             df_mapped = df_mapped[(df_mapped['SYMBOL'] != '') & (df_mapped['SERIES'] != '')]
@@ -171,8 +171,8 @@ def create_oldBhav():
         bhav_old_df = pd.concat(df_list, ignore_index=True)
         bhav_old_df = bhav_old_df.drop_duplicates()
         
-       
-        print(f"[INFO]: bhav_old data created successfully. Shape: {bhav_old_df.shape}")
+        print(f"[DEBUG]: bhav_old data created successfully. Shape: {bhav_old_df.shape}")
+        print(f"[DEBUG]: Columns in bhav_old_df: {bhav_old_df.columns.tolist()}")
         # Print date range of bhav_old_df
         if not bhav_old_df.empty:
             date_range = bhav_old_df['DATE1'].min(), bhav_old_df['DATE1'].max()
@@ -216,6 +216,7 @@ def create_secDel():
         if not sec_del_df.empty:
             date_range = sec_del_df['DATE1'].min(), sec_del_df['DATE1'].max()
             print(f"[INFO]: Date range of sec_del data: {date_range[0]} to {date_range[1]}")
+        print(f"[DEBUG]: Columns in sec_del_df: {sec_del_df.columns.tolist()}")
         return sec_del_df
     else:
         print("[WARNING]: No sec_del data files found.")
@@ -225,6 +226,7 @@ def merge_oldBhav_secDel():
     print("[INFO]: Merging old_bhav and sec_del data into eod_cash table...")
     bhav_old_df = create_oldBhav()
     sec_del_df = create_secDel()
+    print(f"[DEBUG]: bhav_old_df shape: {bhav_old_df.shape}, sec_del_df shape: {sec_del_df.shape}")
     if bhav_old_df is None or sec_del_df is None:
         print("[WARNING]: Cannot merge data as one of the required datasets is empty.")
         return
@@ -234,9 +236,10 @@ def merge_oldBhav_secDel():
         sec_del_df, 
         on=['SYMBOL', 'SERIES', 'DATE1'], 
         how='left', 
-        suffixes=('', '_sec')
+        # suffixes=('', '_sec')
     )
-    
+    print(f"[DEBUG]: Merged DataFrame shape: {merged_df.shape}")
+    print(f"[DEBUG]: Columns in merged_df: {merged_df.columns.tolist()}")
     if not merged_df.empty:
         date_range = merged_df['DATE1'].min(), merged_df['DATE1'].max()
         print(f"[INFO]: Date range of merged data: {date_range[0]} to {date_range[1]}")
@@ -353,8 +356,17 @@ def create_finalDB(con):
         keep='first'
     ).reset_index(drop=True)
     final_df = final_df.sort_values(by=['DATE1', 'SYMBOL']).reset_index(drop=True)
-    con.register('bhav_complete_data', final_df)
-    
+    print(f"[DEBUG]: Columns in final_df ({len(final_df.columns)}): {list(final_df.columns)}")
+
+    con.register('tmp_bhav_complete_data', final_df)
+    # insert into bhav_complete_data table from tmp_bhav_complete_data
+    con.execute("""
+    INSERT INTO bhav_complete_data
+    SELECT * FROM tmp_bhav_complete_data
+    -- WHERE (SYMBOL, SERIES, DATE1) NOT IN (
+    --     SELECT SYMBOL, SERIES, DATE1 FROM bhav_complete_data
+    -- );
+    """)
     print("[INFO]: Final comprehensive dataset created successfully.")
     # Overall statistics
     total_stats = con.execute("""
@@ -387,7 +399,7 @@ if __name__ == "__main__":
     # Initialize database connection (still needed for some fallback operations)
     con = duckdb.connect(database='data/eod.duckdb', read_only=False)
     
-    retrieve_bhav_data()
+    # retrieve_bhav_data()
     create_finalDB(con)
     
     print("[INFO]: Data retrieval completed.")
