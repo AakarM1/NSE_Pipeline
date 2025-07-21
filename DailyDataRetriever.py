@@ -212,8 +212,14 @@ def create_newBhav(con, names : list = None):
         # insert into existing bhav_complete_data table
         con.execute("""
                     insert into bhav_complete_data
-                    select * from bhav_new_data
-                    where (SYMBOL, SERIES, DATE1) not in (select SYMBOL, SERIES, DATE1 from bhav_complete_data)
+                    select bnd.* from bhav_new_data bnd
+                    WHERE NOT EXISTS (
+        SELECT 1
+          FROM bhav_complete_data AS bcd
+         WHERE bcd.SYMBOL = bnd.SYMBOL
+           AND bcd.SERIES = bnd.SERIES
+           AND bcd.DATE1  = bnd.DATE1
+      );
         """)
         # print new bhav shape and date range
         print("\n[INFO]: Checking updated bhav_complete_data table...")
