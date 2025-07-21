@@ -221,6 +221,7 @@ def create_newBhav(con, names : list = None):
            AND bcd.DATE1  = bnd.DATE1
       );
         """)
+        con.unregister('bhav_new_data')
         # print new bhav shape and date range
         print("\n[INFO]: Checking updated bhav_complete_data table...")
         result = con.execute("SELECT COUNT(*), COUNT(DISTINCT SYMBOL), COUNT(DISTINCT SERIES) FROM bhav_complete_data").fetchone()
