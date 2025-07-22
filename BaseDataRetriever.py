@@ -399,7 +399,7 @@ if __name__ == "__main__":
     # Initialize database connection (still needed for some fallback operations)
     con = duckdb.connect(database='data/eod.duckdb', read_only=False)
     
-    retrieve_bhav_data()
+    # retrieve_bhav_data()
     create_finalDB(con)
     
     print("[INFO]: Data retrieval completed.")
