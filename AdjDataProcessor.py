@@ -467,41 +467,44 @@ class DataPreProcessor:
                 bhav_adj_df = bhav_adj_df[bhav_adj_df['SYMBOL'].isin(symbol_list)]
                 print(f"[INFO]: Successfully read {len(bhav_adj_df)} records from CSV file.")
             else:
-                print("[WARNING]: No data found in local 'bhav_adjusted_prices' table or CSV file for the specified symbols and date range.")
+                print("[WARNING]: No data found in local 'bhav_adjusted_prices' CSV file for the specified symbols and date range.")
                 return
         # 4. Merge the two DataFrames for direct comparison
         merged_df = pd.merge(
-            yfin_df_long,
-            bhav_adj_df,
+            # take only symbol date close adj close columns
+            bhav_adj_df[['SYMBOL', 'DATE1', 'CLOSE_PRICE', 'ADJ_CLOSE_PRICE']],
+            yfin_df_long[['SYMBOL', 'DATE1', 'Close', 'Adj Close']],
             on=['SYMBOL', 'DATE1'],
             how='inner', # Use 'inner' to only compare dates where both sources have data
-            suffixes=('_yfin', '_bhav')
+            suffixes=('', '_yfin')
         )
-        
+        print(f"Columns in merged DataFrame: {merged_df.columns.tolist()}")
         if merged_df.empty:
             print("[WARNING]: No common records found between Yahoo Finance and local data for the given symbols and dates.")
             return
 
         # 5. Calculate differences and round values
-        merged_df['CLOSE_PRICE_yfin_rounded'] = merged_df['Close'].round(2)
-        merged_df['CLOSE_PRICE_bhav_rounded'] = merged_df['CLOSE_PRICE'].round(2)
-        merged_df['ADJ_CLOSE_yfin_rounded'] = merged_df['Adj Close'].round(2)
-        merged_df['ADJ_CLOSE_bhav_rounded'] = merged_df['ADJ_CLOSE_PRICE'].round(2)
+        # merged_df['CLOSE_PRICE_yfin_rounded'] = merged_df['Close'].round(2)
+        # merged_df['CLOSE_PRICE_bhav_rounded'] = merged_df['CLOSE_PRICE'].round(2)
+        merged_df['ADJ_CLOSE'] = merged_df['ADJ_CLOSE_PRICE'].round(2)
+        merged_df['ADJ_CLOSE_yfin'] = merged_df['Adj Close'].round(2)
+        # Drop adj close columns from yfin
+        merged_df = merged_df.drop(columns=['Adj Close', 'ADJ_CLOSE_PRICE', 'Close'])
         
-        merged_df['close_diff'] = (merged_df['CLOSE_PRICE_yfin_rounded'] - merged_df['CLOSE_PRICE_bhav_rounded']).abs()
-        merged_df['adj_close_diff'] = (merged_df['ADJ_CLOSE_yfin_rounded'] - merged_df['ADJ_CLOSE_bhav_rounded']).abs()
+        # merged_df['close_diff'] = (merged_df['CLOSE_PRICE_yfin'] - merged_df['CLOSE_PRICE_bhav']).abs()
+        merged_df['adj_close_diff'] = (merged_df['ADJ_CLOSE_yfin'] - merged_df['ADJ_CLOSE']).abs()
 
         # 6. Calculate accuracy percentages
         total_records = len(merged_df)
-        close_matches = (merged_df['close_diff'] == 0).sum()
+        # close_matches = (merged_df['close_diff'] == 0).sum()
         adj_close_matches = (merged_df['adj_close_diff'] == 0).sum()
         
-        close_accuracy = (close_matches / total_records) * 100
+        # close_accuracy = (close_matches / total_records) * 100
         adj_close_accuracy = (adj_close_matches / total_records) * 100
         
         print("\n--- COMPARISON SUMMARY ---")
         print(f"[INFO]: Total Common Records Analyzed: {total_records}")
-        print(f"[INFO]: Close Price Accuracy (rounded to 2dp):   {close_accuracy:.2f}% ({close_matches}/{total_records} matches)")
+        # print(f"[INFO]: Close Price Accuracy (rounded to 2dp):   {close_accuracy:.2f}% ({close_matches}/{total_records} matches)")
         print(f"[INFO]: Adj Close Price Accuracy (rounded to 2dp): {adj_close_accuracy:.2f}% ({adj_close_matches}/{total_records} matches)")
 
         # 7. Display sample data
@@ -509,8 +512,8 @@ class DataPreProcessor:
         # Select relevant columns for display
         display_cols = [
             'SYMBOL', 'DATE1',
-            'CLOSE_PRICE_yfin_rounded', 'CLOSE_PRICE_bhav_rounded', 'close_diff',
-            'ADJ_CLOSE_yfin_rounded', 'ADJ_CLOSE_bhav_rounded', 'adj_close_diff'
+            # 'CLOSE_PRICE_yfin_rounded', 'CLOSE_PRICE_bhav_rounded', 'close_diff',
+            'ADJ_CLOSE', 'ADJ_CLOSE_yfin', 'adj_close_diff'
         ]
         
         # Show some of the largest differences first to identify issues
@@ -545,7 +548,7 @@ class DataPreProcessor:
 if __name__ == "__main__":
     con = duckdb.connect(database='data/eod.duckdb', read_only=False)
     fromDate = '2025-01-01'
-    toDate = '2025-07-01'
+    toDate = (pd.Timestamp.today() - pd.Timedelta(days=1)).strftime('%Y-%m-%d')
     tickerDict = {
         '360ONE': '360ONE.NS',
         # 'CIEINDIA': 'CIEINDIA.NS',
