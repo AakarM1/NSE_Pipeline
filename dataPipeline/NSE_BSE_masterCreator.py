@@ -17,6 +17,7 @@ Downloads and processes NSE bhav_sec and BSE equity data.
 def download_file(url: str, filepath: str) -> bool:
     """Download file from URL and save to filepath."""
     try:
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with httpx.Client(timeout=30) as client:  # Increased timeout
             response = client.get(url)
             if response.status_code == 200:
